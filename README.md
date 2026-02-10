@@ -2,7 +2,7 @@
 
 Bimoi helps you externalize your real relationships: who you know and why they matter. Instead of that knowledge living only in memory or chat history, you capture it at the moment it’s freshest—by sharing a contact and adding context—with minimal friction.
 
-**Current status:** Early stage. A [proof-of-concept](poc/README.md) validates that we can connect to Telegram and read contact cards. The full MVP (contact creation with context, persistence, search) is defined in the project context below.
+**Current status:** Early stage. A [proof-of-concept](poc/README.md) validates that we can connect to Telegram and read contact cards. Core business logic lives in the `bimoi/` package (contact creation flow, duplicate detection, list, search) with unit tests; Telegram is mocked for now. The full MVP (contact creation with context, persistence, search) is defined in the project context below.
 
 ## Project context
 
@@ -22,8 +22,18 @@ The POC in `poc/` checks that we can connect to Telegram and read a contact card
 2. **Run:** From the project root with the venv activated: `python poc/bot.py`
 3. **Test:** In Telegram, open your bot, send `/start`, then share a contact; the bot echoes the contact data it read.
 
+## Core logic and tests
+
+The `bimoi/` package implements the contact creation flow (receive contact card → pending → submit context → stored), duplicate detection, list, and search. It uses [domain.py](domain.py) (Person, RelationshipContext) and an in-memory repository; no frameworks or DB. Telegram is not used in core—only `ContactCardData` and the service API.
+
+- **Run tests:** From repo root with venv activated: `pip install -r requirements-dev.txt` then `pytest tests/ -v`
+- **CI:** Tests run on every push via [.github/workflows/test.yml](.github/workflows/test.yml)
+
 ## Repo layout
 
 - **`docs/PROJECT_CONTEXT.md`** — Full product and domain spec for the MVP
-- **`domain.py`** — Core domain types (Person, RelationshipContext) for future use
+- **`domain.py`** — Core domain types (Person, RelationshipContext)
+- **`bimoi/`** — Core business logic (ContactService, repository, contact card DTOs)
+- **`tests/`** — Unit tests for the core logic
 - **`poc/`** — Telegram contact-card POC (bot, README, requirements)
+- **`.github/workflows/test.yml`** — Run tests on every push

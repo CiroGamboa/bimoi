@@ -12,6 +12,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 |------|----------|
 | **Full product scope, requirements, user stories, domain model** | [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) — canonical source of truth |
 | **Domain types (Person, RelationshipContext)** | [domain.py](domain.py) — use these types when implementing features |
+| **Core business logic (contact flow, list, search)** | [bimoi/](bimoi/) — ContactService, ContactRepository, ContactCardData |
 | **Human-facing overview and POC instructions** | [README.md](README.md) |
 | **Telegram POC (connect + read contact card)** | [poc/](poc/) — [poc/README.md](poc/README.md) for setup and run |
 
@@ -22,7 +23,8 @@ This file gives LLMs and other agents the main pointers to understand and work o
 - **POC deps:** `pip install -r poc/requirements.txt`
 - **POC token:** Set `TELEGRAM_BOT_TOKEN` (e.g. in `poc/.env`; see `poc/.env.example`). Get token from @BotFather.
 - **Run POC:** `python poc/bot.py`
-- **Code quality (pre-commit):** `pip install -r requirements-dev.txt`, then `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
+- **Tests:** `pip install -r requirements-dev.txt` then `pytest tests/ -v`. CI runs tests on every push.
+- **Code quality (pre-commit):** `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
 
 ## Conventions
 

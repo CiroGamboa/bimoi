@@ -5,10 +5,22 @@ description = "Externalize real relationships: who you know and why they matter.
 readme = "README.md"
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["bimoi*"]
+
 [tool.isort]
 profile = "black"
 line_length = 88
-known_first_party = ["domain"]
+known_first_party = ["bimoi", "domain"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 88
