@@ -22,6 +22,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 - **POC deps:** `pip install -r poc/requirements.txt`
 - **POC token:** Set `TELEGRAM_BOT_TOKEN` (e.g. in `poc/.env`; see `poc/.env.example`). Get token from @BotFather.
 - **Run POC:** `python poc/bot.py`
+- **Code quality (pre-commit):** `pip install -r requirements-dev.txt`, then `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
 
 ## Conventions
 

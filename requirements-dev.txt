@@ -1,0 +1,2 @@
+# Code quality and pre-commit (install from repo root)
+pre-commit>=4.0.0

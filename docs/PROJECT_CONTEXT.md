@@ -561,4 +561,3 @@ Conceptual summary
 At its core, Bimoi models a single, powerful idea:
 A relationship only exists when meaning is made explicit.
 Everything else — discovery, introductions, networks — can only be built on top of that foundation.
-

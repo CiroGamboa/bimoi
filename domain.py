@@ -1,7 +1,6 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -29,8 +28,8 @@ class Person:
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = field(default="")
-    phone_number: Optional[str] = None
-    external_id: Optional[str] = None
+    phone_number: str | None = None
+    external_id: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     relationship_context: RelationshipContext = field(default=None)
 

@@ -2,8 +2,8 @@
 POC: Connect to Telegram and read contact cards.
 Run with TELEGRAM_BOT_TOKEN set (e.g. from .env in poc/ or environment).
 """
-import os
 import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -52,7 +52,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if contact.last_name:
         name = f"{name} {contact.last_name}".strip()
     parts = [
-        f"Contact received:",
+        "Contact received:",
         f"  Name: {name or '(none)'}",
         f"  Phone: {contact.phone_number or '(none)'}",
         f"  Telegram user_id: {contact.user_id or '(none)'}",

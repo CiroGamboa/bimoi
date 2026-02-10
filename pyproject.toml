@@ -1,0 +1,32 @@
+[project]
+name = "bimoi"
+version = "0.1.0"
+description = "Externalize real relationships: who you know and why they matter."
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["domain"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+# isort handles import sorting; ruff handles lint + format
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# load_dotenv() must run before other imports so .env is loaded first
+"poc/bot.py" = ["E402"]
