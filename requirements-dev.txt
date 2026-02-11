@@ -1,5 +1,6 @@
-# Code quality, tests, and pre-commit (install from repo root: pip install -e ".[dev]")
-# Or: pip install -e . && pip install -r requirements-dev.txt
+# Code quality, tests, and pre-commit.
+# Full test suite (including API tests): pip install -e ".[dev,api]"
+# Lint/tests only (no API): pip install -e ".[dev]" or: pip install -e . && pip install -r requirements-dev.txt
 pre-commit>=4.0.0
 pytest>=8.0
 testcontainers[neo4j]>=4.0

@@ -9,6 +9,7 @@ requires-python = ">=3.10"
 dev = [
     "pytest>=8.0",
     "testcontainers[neo4j]>=4.0",
+    "pre-commit>=4.0.0",
 ]
 bot = [
     "neo4j>=5.0",
@@ -18,6 +19,7 @@ bot = [
 api = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    "httpx>=0.27.0",
 ]
 
 [tool.setuptools.packages.find]
