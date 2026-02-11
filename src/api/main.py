@@ -74,6 +74,12 @@ def _get_cached_driver(app: FastAPI):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.driver = None
+    logger.info(
+        "Telegram webhook: POST /webhook/telegram. "
+        "To receive messages, set webhook to a public HTTPS URL (e.g. ngrok). "
+        "Localhost is not reachable by Telegram. "
+        "Local testing without tunnel: USE_POLLING=1 python -m bot"
+    )
     try:
         yield
     finally:

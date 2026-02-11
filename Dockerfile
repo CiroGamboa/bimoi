@@ -4,11 +4,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install deps (bot + api extras: neo4j, telegram, fastapi, uvicorn)
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[bot,api]"
-
+# Copy project files needed for editable install (setuptools needs src/ and README)
+COPY pyproject.toml README.md ./
 COPY src ./src
+
+# Install deps (bot + api extras: neo4j, telegram, fastapi, uvicorn)
+RUN pip install --no-cache-dir -e ".[bot,api]"
 
 # Default: run FastAPI. Override with command to run polling bot (USE_POLLING=1 python -m bot)
 ENV PORT=8000

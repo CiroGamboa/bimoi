@@ -8,8 +8,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Repo root: from src/bot/__main__.py go up to repo root (parent.parent.parent when in src layout)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # Load .env from repo root or current dir
-for path in (Path(__file__).resolve().parent.parent / ".env", Path.cwd() / ".env"):
+for path in (_REPO_ROOT / ".env", Path.cwd() / ".env"):
     if path.exists():
         load_dotenv(path)
         break

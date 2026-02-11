@@ -26,12 +26,12 @@ The POC in `poc/` checks that we can connect to Telegram and read a contact card
 
 One backend serves the **REST API** and the **Telegram bot** (via webhook). Telegram sends updates to your server; no long-polling in production.
 
-1. **Docker (recommended):** `docker compose up -d` — starts Neo4j and the backend. Backend: http://localhost:8000 (health: `GET /health`, API: `GET/POST /contacts`, `GET /contacts/search?q=...`, Telegram: `POST /webhook/telegram`).
+1. **Docker:** `docker compose up -d` — starts Neo4j and the backend (e.g. http://localhost:8010 for health and API).
 2. **Env:** Copy [.env.example](.env.example) to `.env` and set `NEO4J_*`, `TELEGRAM_BOT_TOKEN`.
-3. **Set Telegram webhook:** In production, your backend must be reachable over HTTPS. Set the webhook URL to `https://<your-domain>/webhook/telegram` (e.g. via Telegram Bot API or a one-off script). Then Telegram will POST updates to that URL; no need to run a separate bot process.
-4. **Run without Docker:** `pip install -e ".[bot,api]"`, start Neo4j (e.g. `docker compose up -d neo4j`), then `uvicorn api.main:app --reload --port 8000`. Again, set the webhook URL to your public HTTPS endpoint for Telegram to work.
-
-**Local dev without a public URL:** Use polling so Telegram doesn’t need to reach your machine: set `USE_POLLING=1`, then run `python -m bot` (same contact flow; Neo4j must be running). Alternatively use a tunnel (e.g. ngrok) and point the webhook at it.
+3. **Telegram bot with Docker:** Telegram’s servers cannot reach `localhost`. So after `docker compose up`, the bot will not receive messages until you either:
+   - **Option A (webhook):** Expose your backend with a public HTTPS URL (e.g. `ngrok http 8010`), then set the webhook: `curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://YOUR_NGROK_URL/webhook/telegram"`. Then messages to the bot will work.
+   - **Option B (polling, no tunnel):** Stop the backend container and run the bot on your machine: `docker compose stop backend`, then `USE_POLLING=1 python -m bot` (Neo4j stays in Docker). The bot will receive messages without any public URL.
+4. **Run without Docker:** `pip install -e ".[bot,api]"`, start Neo4j (e.g. `docker compose up -d neo4j`), then `uvicorn api.main:app --reload --port 8000`. Set the webhook to your public HTTPS endpoint, or use `USE_POLLING=1 python -m bot` for local testing.
 
 Commands in Telegram: share a contact to add (then send context text), `/list`, `/search <keyword>`.
 
