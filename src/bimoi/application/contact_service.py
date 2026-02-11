@@ -90,6 +90,8 @@ class ContactService:
                     name=person.name,
                     context=ctx.description,
                     created_at=person.created_at,
+                    person_id=person.id,
+                    phone_number=person.phone_number,
                 )
             )
         return out
@@ -108,6 +110,8 @@ class ContactService:
                         name=person.name,
                         context=ctx.description,
                         created_at=person.created_at,
+                        person_id=person.id,
+                        phone_number=person.phone_number,
                     )
                 )
         return out

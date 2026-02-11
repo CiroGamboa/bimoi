@@ -6,11 +6,13 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class ContactSummary:
-    """One contact as returned by list_contacts and search_contacts."""
+    """One contact (card + description) from list_contacts / search_contacts."""
 
     name: str
     context: str
     created_at: datetime
+    person_id: str = ""
+    phone_number: str | None = None
 
 
 @dataclass(frozen=True)

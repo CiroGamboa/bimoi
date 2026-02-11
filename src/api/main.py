@@ -28,6 +28,7 @@ from bimoi.application import (
     ContactCardData,
     ContactCreated,
     ContactService,
+    ContactSummary,
     Duplicate,
     Invalid,
     PendingContact,
@@ -55,6 +56,15 @@ def _get_driver():
 # Per-user ContactService cache (for webhook: same user keeps same pending state)
 _service_cache: dict[str, ContactService] = {}
 _pending_by_chat: dict[int, str] = {}  # chat_id -> pending_id for webhook
+
+
+def _format_contact_card(s: ContactSummary) -> str:
+    """Format one contact as card (name, phone) + description."""
+    parts = [s.name]
+    if s.phone_number:
+        parts.append(f"Phone: {s.phone_number}")
+    parts.append(f"— {s.context}")
+    return "\n".join(parts)
 
 
 def get_service(user_id: str, app: FastAPI) -> ContactService:
@@ -112,6 +122,8 @@ class ContactListItem(BaseModel):
     name: str
     context: str
     created_at: str
+    person_id: str = ""
+    phone_number: str | None = None
 
 
 @app.post("/contacts")
@@ -159,6 +171,8 @@ def list_contacts(
             name=s.name,
             context=s.context,
             created_at=s.created_at.isoformat(),
+            person_id=s.person_id,
+            phone_number=s.phone_number,
         )
         for s in summaries
     ]
@@ -178,6 +192,8 @@ def search_contacts(
             name=s.name,
             context=s.context,
             created_at=s.created_at.isoformat(),
+            person_id=s.person_id,
+            phone_number=s.phone_number,
         )
         for s in summaries
     ]
@@ -256,7 +272,7 @@ async def webhook_telegram(request: Request):
             if not summaries:
                 await send("No contacts yet. Share a contact card to add one.")
             else:
-                lines = [f"{s.name} — {s.context}" for s in summaries]
+                lines = [_format_contact_card(s) for s in summaries]
                 await send("\n\n".join(lines))
             return {}
         if text.startswith("/search "):
@@ -268,7 +284,7 @@ async def webhook_telegram(request: Request):
                 if not summaries:
                     await send("No contacts match that keyword.")
                 else:
-                    lines = [f"{s.name} — {s.context}" for s in summaries]
+                    lines = [_format_contact_card(s) for s in summaries]
                     await send("\n\n".join(lines))
             return {}
         # Treat as context for pending

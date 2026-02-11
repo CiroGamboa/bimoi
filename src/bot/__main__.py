@@ -30,6 +30,7 @@ from bimoi.application import (
     ContactCardData,
     ContactCreated,
     ContactService,
+    ContactSummary,
     Duplicate,
     Invalid,
     PendingContact,
@@ -60,6 +61,15 @@ def _contact_from_telegram(contact) -> ContactCardData:
     )
 
 
+def _format_contact_card(s: ContactSummary) -> str:
+    """Format one contact as card (name, phone) + description."""
+    parts = [s.name]
+    if s.phone_number:
+        parts.append(f"Phone: {s.phone_number}")
+    parts.append(f"— {s.context}")
+    return "\n".join(parts)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Send or share a contact card to add a contact. "
@@ -78,7 +88,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if not summaries:
                 await update.message.reply_text("No contacts yet. Share a contact card to add one.")
                 return
-            lines = [f"{s.name} — {s.context}" for s in summaries]
+            lines = [_format_contact_card(s) for s in summaries]
             await update.message.reply_text("\n\n".join(lines))
             return
         if text.startswith("/search "):
@@ -90,7 +100,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if not summaries:
                 await update.message.reply_text("No contacts match that keyword.")
                 return
-            lines = [f"{s.name} — {s.context}" for s in summaries]
+            lines = [_format_contact_card(s) for s in summaries]
             await update.message.reply_text("\n\n".join(lines))
             return
         await update.message.reply_text(
