@@ -1,11 +1,12 @@
 """Neo4j implementation of ContactRepository.
-Person and RelationshipContext as nodes, HAS_CONTEXT edge.
+Graph: (User)-[:KNOWS]->(Person)-[:HAS_CONTEXT]->(RelationshipContext).
+All data scoped by user_id.
 """
 
 from datetime import datetime
 
-import domain
-from bimoi.contact_card import ContactCardData
+from bimoi.application.dto import ContactCardData
+from bimoi.domain import Person, RelationshipContext
 
 
 def _datetime_to_iso(dt: datetime) -> str:
@@ -23,16 +24,20 @@ def _normalize_telegram_id(value: int | str | None) -> str | None:
 
 
 class Neo4jContactRepository:
-    """Stores contact aggregates in Neo4j: (Person)-[:HAS_CONTEXT]->(RelationshipContext)."""  # noqa: E501
+    """Stores contact aggregates in Neo4j, scoped by user_id.
+    (User)-[:KNOWS]->(Person)-[:HAS_CONTEXT]->(RelationshipContext).
+    """
 
-    def __init__(self, driver: object) -> None:
+    def __init__(self, driver: object, user_id: str = "default") -> None:
         self._driver = driver
+        self._user_id = user_id
 
-    def add(self, person: domain.Person) -> None:
+    def add(self, person: Person) -> None:
         ctx = person.relationship_context
         with self._driver.session() as session:
             session.run(
                 """
+                MERGE (u:User {id: $user_id})
                 CREATE (p:Person {
                     id: $person_id,
                     name: $name,
@@ -45,8 +50,10 @@ class Neo4jContactRepository:
                     description: $description,
                     created_at: $ctx_created_at
                 })
+                CREATE (u)-[:KNOWS]->(p)
                 CREATE (p)-[:HAS_CONTEXT]->(c)
                 """,
+                user_id=self._user_id,
                 person_id=person.id,
                 name=person.name,
                 phone_number=person.phone_number or "",
@@ -57,14 +64,16 @@ class Neo4jContactRepository:
                 ctx_created_at=_datetime_to_iso(ctx.created_at),
             )
 
-    def get_by_id(self, person_id: str) -> domain.Person | None:
+    def get_by_id(self, person_id: str) -> Person | None:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                MATCH (u:User {id: $user_id})-[:KNOWS]->(p:Person)
+                -[:HAS_CONTEXT]->(c:RelationshipContext)
                 WHERE p.id = $id
                 RETURN p, c
                 """,
+                user_id=self._user_id,
                 id=person_id,
             )
             record = result.single()
@@ -72,18 +81,20 @@ class Neo4jContactRepository:
             return None
         return _record_to_person(record)
 
-    def list_all(self) -> list[domain.Person]:
+    def list_all(self) -> list[Person]:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                MATCH (u:User {id: $user_id})-[:KNOWS]->(p:Person)
+                -[:HAS_CONTEXT]->(c:RelationshipContext)
                 RETURN p, c
                 ORDER BY p.created_at
-                """
+                """,
+                user_id=self._user_id,
             )
             return [_record_to_person(rec) for rec in result]
 
-    def find_duplicate(self, card: ContactCardData) -> domain.Person | None:
+    def find_duplicate(self, card: ContactCardData) -> Person | None:
         card_phone = (card.phone_number or "").strip() or None
         card_tid = _normalize_telegram_id(card.telegram_user_id)
         if not card_phone and not card_tid:
@@ -91,12 +102,14 @@ class Neo4jContactRepository:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                MATCH (u:User {id: $user_id})-[:KNOWS]->(p:Person)
+                -[:HAS_CONTEXT]->(c:RelationshipContext)
                 WHERE ($phone <> '' AND p.phone_number = $phone)
                    OR ($external_id <> '' AND p.external_id = $external_id)
                 RETURN p, c
                 LIMIT 1
                 """,
+                user_id=self._user_id,
                 phone=card_phone or "",
                 external_id=card_tid or "",
             )
@@ -106,7 +119,7 @@ class Neo4jContactRepository:
         return _record_to_person(record)
 
 
-def _record_to_person(record) -> domain.Person:
+def _record_to_person(record) -> Person:
     p = record["p"]
     c = record["c"]
     person_id = p["id"]
@@ -121,12 +134,12 @@ def _record_to_person(record) -> domain.Person:
     ctx_id = c["id"]
     description = c["description"]
     ctx_created_at = _iso_to_datetime(c["created_at"])
-    ctx = domain.RelationshipContext(
+    ctx = RelationshipContext(
         id=ctx_id,
         description=description,
         created_at=ctx_created_at,
     )
-    return domain.Person(
+    return Person(
         id=person_id,
         name=name,
         phone_number=phone_number,

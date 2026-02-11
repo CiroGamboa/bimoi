@@ -1,0 +1,12 @@
+---
+description: Use Notion MCP for project status and user story for current branch
+alwaysApply: true
+---
+
+# Notion project context
+
+Project tasks and user stories are tracked in **Notion**. When the user asks for:
+- project status, or
+- the user story / task for the current branch (or a named branch),
+
+use **Notion MCP** to fetch and summarize: search or query the tasks database (e.g. by Branch field or task ID). Return the relevant story, acceptance criteria, and status. Branch names follow the convention `feature/US-<id>-<slug>` (e.g. `feature/US-1-add-contact`); the user may also ask to update status in Notion (e.g. mark as In progress or Done) if the integration has edit access.

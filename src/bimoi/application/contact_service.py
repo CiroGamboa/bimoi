@@ -2,8 +2,7 @@
 
 import uuid
 
-import domain
-from bimoi.contact_card import (
+from bimoi.application.dto import (
     ContactCardData,
     ContactCreated,
     ContactSummary,
@@ -12,7 +11,8 @@ from bimoi.contact_card import (
     PendingContact,
     PendingNotFound,
 )
-from bimoi.repository import ContactRepository
+from bimoi.application.ports import ContactRepository
+from bimoi.domain import Person, RelationshipContext
 
 
 class ContactService:
@@ -52,7 +52,7 @@ class ContactService:
             return PendingNotFound(pending_id=pending_id)
 
         try:
-            relationship_context = domain.RelationshipContext(description=context_clean)
+            relationship_context = RelationshipContext(description=context_clean)
         except ValueError:
             return PendingNotFound(pending_id=pending_id)
 
@@ -66,7 +66,7 @@ class ContactService:
         phone = (card.phone_number or "").strip() or None
 
         try:
-            person = domain.Person(
+            person = Person(
                 name=card.name.strip(),
                 phone_number=phone,
                 external_id=external_id,

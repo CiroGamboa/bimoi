@@ -8,6 +8,7 @@ requires-python = ">=3.10"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "testcontainers[neo4j]>=4.0",
 ]
 bot = [
     "neo4j>=5.0",
@@ -16,16 +17,17 @@ bot = [
 ]
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["bimoi*", "bot*"]
 
 [tool.isort]
 profile = "black"
 line_length = 88
-known_first_party = ["bimoi", "domain"]
+known_first_party = ["bimoi"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+# No pythonpath: use src layout; install with pip install -e ".[dev]" so tests run against installed package
 
 [tool.ruff]
 line-length = 88
@@ -47,4 +49,4 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # load_dotenv() must run before other imports so .env is loaded first
 "poc/bot.py" = ["E402"]
-"bot/__main__.py" = ["E402"]
+"src/bot/__main__.py" = ["E402"]

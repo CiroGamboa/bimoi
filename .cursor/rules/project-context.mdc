@@ -6,7 +6,7 @@ alwaysApply: true
 # Bimoi project context
 
 - **Product scope and requirements:** Read [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for the full MVP spec, user stories, edge cases, and domain model. Treat it as the source of truth for what is in/out of scope.
-- **Domain types:** Use or extend [domain.py](domain.py) (Person, RelationshipContext). A contact in the system is a Person with exactly one RelationshipContext; both are created atomically.
+- **Domain types:** Use or extend [src/bimoi/domain/](src/bimoi/domain/) (Person, RelationshipContext). A contact in the system is a Person with exactly one RelationshipContext; both are created atomically.
 - **Agent overview:** See [AGENTS.md](AGENTS.md) for repo layout, setup commands, and conventions.
 
-When adding features or handling Telegram flows, align with PROJECT_CONTEXT.md and reuse domain.py types.
+When adding features or handling Telegram flows, align with PROJECT_CONTEXT.md and reuse bimoi.domain types.

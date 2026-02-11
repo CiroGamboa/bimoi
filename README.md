@@ -34,9 +34,9 @@ Commands in Telegram: share a contact to add (then send context text), `/list`, 
 
 ## Core logic and tests
 
-The `bimoi/` package implements the contact creation flow (receive contact card → pending → submit context → stored), duplicate detection, list, and search. It uses [domain.py](domain.py) (Person, RelationshipContext). Persistence is via [bimoi.persistence](bimoi/persistence/) (Neo4j adapter); tests use the in-memory repo.
+The `bimoi/` package uses a clean-architecture layout: **domain** (Person, RelationshipContext), **application** (ContactService, ports, DTOs), **infrastructure** (Neo4j and in-memory adapters). Tests use the in-memory repo; integration tests use testcontainers Neo4j.
 
-- **Run tests:** From repo root with venv activated: `pip install -r requirements-dev.txt` then `pytest tests/ -v`
+- **Run tests:** From repo root with venv activated: `pip install -e ".[dev]"` then `pytest tests/ -v` (src layout: tests run against the installed package)
 - **CI:** Tests run on every push via [.github/workflows/test.yml](.github/workflows/test.yml)
 
 ## Tasks and status (Notion)
@@ -45,11 +45,11 @@ Project tasks, user stories, and status are tracked in **Notion**. Branches are 
 
 ## Repo layout
 
+- **`src/`** — Installable packages (src layout: tests run against installed package)
+  - **`src/bimoi/`** — Core (domain, application, infrastructure)
+  - **`src/bot/`** — Production Telegram bot; run with `python -m bot`
 - **`docs/PROJECT_CONTEXT.md`** — Full product and domain spec for the MVP
-- **`domain.py`** — Core domain types (Person, RelationshipContext)
-- **`bimoi/`** — Core business logic (ContactService, repository, contact card DTOs) and **`bimoi.persistence`** — Neo4j adapter
-- **`bot/`** — Production Telegram bot (ContactService + Neo4j); run with `python -m bot`
-- **`tests/`** — Unit tests for the core logic
+- **`tests/`** — Unit and integration tests (integration tests require Docker)
 - **`poc/`** — Standalone Telegram contact-card POC (unchanged)
 - **`docker-compose.yml`** — Neo4j for local development
 - **`.env.example`** — NEO4J_*, TELEGRAM_BOT_TOKEN for the production bot

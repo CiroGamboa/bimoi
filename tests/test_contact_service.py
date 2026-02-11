@@ -1,16 +1,15 @@
 """Unit tests for ContactService. No Telegram; in-memory repo and ContactCardData only."""
 
-
-from bimoi.contact_card import (
+from bimoi.application import (
     ContactCardData,
     ContactCreated,
+    ContactService,
     Duplicate,
     Invalid,
     PendingContact,
     PendingNotFound,
 )
-from bimoi.memory_repository import InMemoryContactRepository
-from bimoi.service import ContactService
+from bimoi.infrastructure import InMemoryContactRepository
 
 
 def _service() -> ContactService:

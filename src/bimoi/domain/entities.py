@@ -1,3 +1,5 @@
+"""Domain entities: Person and RelationshipContext."""
+
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime

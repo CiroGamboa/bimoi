@@ -24,9 +24,15 @@ from telegram.ext import (
     filters,
 )
 
-from bimoi.contact_card import ContactCardData
-from bimoi.persistence.neo4j_repository import Neo4jContactRepository
-from bimoi.service import ContactService
+from bimoi.application import (
+    ContactCardData,
+    ContactCreated,
+    ContactService,
+    Duplicate,
+    Invalid,
+    PendingContact,
+)
+from bimoi.infrastructure import Neo4jContactRepository
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -90,8 +96,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     # Treat as context for pending contact
-    from bimoi.contact_card import ContactCreated
-
     # We need to submit with the current pending_id; the service holds one pending per process
     # We don't have the pending_id in context - the service has it internally. So we need to
     # either store pending_id in bot_data when we get PendingContact, or change the service
@@ -125,8 +129,6 @@ async def handle_contact_then_save_pending(
     card = _contact_from_telegram(contact)
     service = _get_service(context)
     result = service.receive_contact_card(card)
-    from bimoi.contact_card import Duplicate, Invalid, PendingContact
-
     if isinstance(result, PendingContact):
         context.bot_data["pending_id"] = result.pending_id
         await update.message.reply_text(
@@ -154,7 +156,7 @@ def main() -> None:
             "Set TELEGRAM_BOT_TOKEN (e.g. in .env). Get a token from @BotFather."
         )
     driver = GraphDatabase.driver(uri, auth=(user, password))
-    repo = Neo4jContactRepository(driver)
+    repo = Neo4jContactRepository(driver, user_id="default")
     service = ContactService(repo)
     app = Application.builder().token(token).build()
     app.bot_data[SERVICE_KEY] = service

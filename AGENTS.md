@@ -11,10 +11,10 @@ This file gives LLMs and other agents the main pointers to understand and work o
 | Need | Location |
 |------|----------|
 | **Full product scope, requirements, user stories, domain model** | [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) — canonical source of truth |
-| **Domain types (Person, RelationshipContext)** | [domain.py](domain.py) — use these types when implementing features |
-| **Core business logic (contact flow, list, search)** | [bimoi/](bimoi/) — ContactService, ContactRepository, ContactCardData |
-| **Neo4j persistence** | [bimoi.persistence](bimoi/persistence/) — Neo4jContactRepository |
-| **Production Telegram bot** | [bot/](bot/) — run with `python -m bot` (Neo4j + ContactService) |
+| **Domain types (Person, RelationshipContext)** | [src/bimoi/domain/](src/bimoi/domain/) — use these types when implementing features |
+| **Core business logic (contact flow, list, search)** | [src/bimoi/application/](src/bimoi/application/) — ContactService, ContactRepository, ContactCardData |
+| **Neo4j persistence** | [src/bimoi/infrastructure/persistence/](src/bimoi/infrastructure/persistence/) — Neo4jContactRepository |
+| **Production Telegram bot** | [src/bot/](src/bot/) — run with `python -m bot` (Neo4j + ContactService) |
 | **Human-facing overview and POC instructions** | [README.md](README.md) |
 | **Telegram POC (connect + read contact card)** | [poc/](poc/) — [poc/README.md](poc/README.md) for setup and run |
 
@@ -26,7 +26,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 - **POC token:** Set `TELEGRAM_BOT_TOKEN` (e.g. in `poc/.env`; see `poc/.env.example`). Get token from @BotFather.
 - **Run POC:** `python poc/bot.py`
 - **Production bot:** Start Neo4j with `docker compose up -d`, set `.env` (see [.env.example](.env.example)), then `pip install -e ".[bot]"` and `python -m bot`.
-- **Tests:** `pip install -r requirements-dev.txt` then `pytest tests/ -v`. CI runs tests on every push.
+- **Tests:** `pip install -e ".[dev]"` then `pytest tests/ -v`. Package uses src layout; tests run against the installed package. CI runs tests on every push.
 - **Code quality (pre-commit):** `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
 
 ## Tasks and status (Notion)
@@ -36,4 +36,4 @@ Project tasks and user stories live in **Notion**. Branch naming convention: `fe
 ## Conventions
 
 - Keep behavior and scope aligned with [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md). Do not add features that are explicitly out of scope (e.g. multi-user, auth, tagging, context editing).
-- Use or extend types from [domain.py](domain.py) for contact/context modeling rather than inventing new structures.
+- Use or extend types from [bimoi.domain](src/bimoi/domain/) for contact/context modeling rather than inventing new structures.

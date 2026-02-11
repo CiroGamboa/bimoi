@@ -1,4 +1,4 @@
-"""Input DTO and result types for contact creation flow."""
+"""Input DTOs and result types for the contact creation flow."""
 
 from dataclasses import dataclass
 from datetime import datetime
