@@ -26,7 +26,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 - **POC token:** Set `TELEGRAM_BOT_TOKEN` (e.g. in `poc/.env`; see `poc/.env.example`). Get token from @BotFather.
 - **Run POC:** `python poc/bot.py`
 - **Production bot:** Start Neo4j with `docker compose up -d`, set `.env` (see [.env.example](.env.example)), then `pip install -e ".[bot]"` and `python -m bot`.
-- **Tests:** `pip install -e ".[dev]"` then `pytest tests/ -v`. Package uses src layout; tests run against the installed package. CI runs tests on every push.
+- **Tests:** `pip install -e ".[dev,api]"` then `pytest tests/ -v`. Package uses src layout; tests run against the installed package. API tests need the `api` extra (FastAPI). CI runs tests on every push.
 - **Code quality (pre-commit):** `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
 
 ## Tasks and status (Notion)

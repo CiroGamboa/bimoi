@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -e ".[dev]"
+          .venv/bin/pip install -e ".[dev,api]"
 
       - name: Run tests
         run: .venv/bin/pytest tests/ -v
