@@ -147,6 +147,13 @@ async def other_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def main() -> None:
+    use_polling = os.environ.get("USE_POLLING", "").strip().lower() in ("1", "true", "yes")
+    if not use_polling:
+        raise SystemExit(
+            "For production use the FastAPI backend: uvicorn api.main:app "
+            "and set the Telegram webhook to https://<your-domain>/webhook/telegram. "
+            "For local dev with polling set USE_POLLING=1 and run python -m bot again."
+        )
     uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687").strip()
     user = os.environ.get("NEO4J_USER", "neo4j").strip()
     password = os.environ.get("NEO4J_PASSWORD", "password").strip()
@@ -169,7 +176,7 @@ def main() -> None:
             other_message,
         )
     )
-    logger.info("Bot running (Neo4j + ContactService). Commands: /list, /search")
+    logger.info("Bot running (polling, dev). Commands: /list, /search")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

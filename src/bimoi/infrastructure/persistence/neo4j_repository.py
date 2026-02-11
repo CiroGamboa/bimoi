@@ -1,6 +1,6 @@
 """Neo4j implementation of ContactRepository.
-Graph: (User)-[:KNOWS]->(Person)-[:HAS_CONTEXT]->(RelationshipContext).
-All data scoped by user_id.
+Graph: single Person label with registered flag.
+(owner:Person {id: user_id, registered: true})-[:KNOWS]->(contact:Person {registered: false})-[:HAS_CONTEXT]->(RelationshipContext).
 """
 
 from datetime import datetime
@@ -25,7 +25,7 @@ def _normalize_telegram_id(value: int | str | None) -> str | None:
 
 class Neo4jContactRepository:
     """Stores contact aggregates in Neo4j, scoped by user_id.
-    (User)-[:KNOWS]->(Person)-[:HAS_CONTEXT]->(RelationshipContext).
+    Single Person label: owner has registered: true, contacts have registered: false.
     """
 
     def __init__(self, driver: object, user_id: str = "default") -> None:
@@ -37,20 +37,21 @@ class Neo4jContactRepository:
         with self._driver.session() as session:
             session.run(
                 """
-                MERGE (u:User {id: $user_id})
+                MERGE (owner:Person {id: $user_id, registered: true})
                 CREATE (p:Person {
                     id: $person_id,
                     name: $name,
                     phone_number: $phone_number,
                     external_id: $external_id,
-                    created_at: $person_created_at
+                    created_at: $person_created_at,
+                    registered: false
                 })
                 CREATE (c:RelationshipContext {
                     id: $ctx_id,
                     description: $description,
                     created_at: $ctx_created_at
                 })
-                CREATE (u)-[:KNOWS]->(p)
+                CREATE (owner)-[:KNOWS]->(p)
                 CREATE (p)-[:HAS_CONTEXT]->(c)
                 """,
                 user_id=self._user_id,
@@ -68,9 +69,9 @@ class Neo4jContactRepository:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (u:User {id: $user_id})-[:KNOWS]->(p:Person)
-                -[:HAS_CONTEXT]->(c:RelationshipContext)
-                WHERE p.id = $id
+                MATCH (owner:Person {id: $user_id, registered: true})-[:KNOWS]->
+                      (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                WHERE p.id = $id AND p.registered = false
                 RETURN p, c
                 """,
                 user_id=self._user_id,
@@ -85,8 +86,9 @@ class Neo4jContactRepository:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (u:User {id: $user_id})-[:KNOWS]->(p:Person)
-                -[:HAS_CONTEXT]->(c:RelationshipContext)
+                MATCH (owner:Person {id: $user_id, registered: true})-[:KNOWS]->
+                      (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                WHERE p.registered = false
                 RETURN p, c
                 ORDER BY p.created_at
                 """,
@@ -102,10 +104,11 @@ class Neo4jContactRepository:
         with self._driver.session() as session:
             result = session.run(
                 """
-                MATCH (u:User {id: $user_id})-[:KNOWS]->(p:Person)
-                -[:HAS_CONTEXT]->(c:RelationshipContext)
-                WHERE ($phone <> '' AND p.phone_number = $phone)
-                   OR ($external_id <> '' AND p.external_id = $external_id)
+                MATCH (owner:Person {id: $user_id, registered: true})-[:KNOWS]->
+                      (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                WHERE p.registered = false
+                  AND (($phone <> '' AND p.phone_number = $phone)
+                   OR ($external_id <> '' AND p.external_id = $external_id))
                 RETURN p, c
                 LIMIT 1
                 """,

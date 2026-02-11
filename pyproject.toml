@@ -15,15 +15,19 @@ bot = [
     "python-telegram-bot>=21.0",
     "python-dotenv>=1.0.0",
 ]
+api = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["bimoi*", "bot*"]
+include = ["bimoi*", "bot*", "api*"]
 
 [tool.isort]
 profile = "black"
 line_length = 88
-known_first_party = ["bimoi"]
+known_first_party = ["api", "bimoi", "bot"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,3 +54,4 @@ ignore = [
 # load_dotenv() must run before other imports so .env is loaded first
 "poc/bot.py" = ["E402"]
 "src/bot/__main__.py" = ["E402"]
+"src/api/main.py" = ["E402"]

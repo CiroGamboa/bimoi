@@ -2,7 +2,7 @@
 
 Bimoi helps you externalize your real relationships: who you know and why they matter. Instead of that knowledge living only in memory or chat history, you capture it at the moment it’s freshest—by sharing a contact and adding context—with minimal friction.
 
-**Current status:** Production bot in `bot/` wires Telegram to the core (`bimoi/`) and persists contacts in **Neo4j** (Docker for dev). Core logic is tested with an in-memory repo; [poc/](poc/README.md) remains a standalone POC.
+**Current status:** A **FastAPI backend** exposes a REST API and the **Telegram webhook**; one service handles all clients. Contacts are stored in **Neo4j**. Run the backend in Docker or with uvicorn; for local dev without a public URL you can use polling (`USE_POLLING=1 python -m bot`). [poc/](poc/README.md) remains a standalone POC.
 
 ## Project context
 
@@ -22,13 +22,16 @@ The POC in `poc/` checks that we can connect to Telegram and read a contact card
 2. **Run:** From the project root with the venv activated: `python poc/bot.py`
 3. **Test:** In Telegram, open your bot, send `/start`, then share a contact; the bot echoes the contact data it read.
 
-## Production bot (Neo4j + Telegram)
+## Production backend (FastAPI + Neo4j + Telegram webhook)
 
-The **bot** package runs the full flow: Telegram → ContactService → Neo4j.
+One backend serves the **REST API** and the **Telegram bot** (via webhook). Telegram sends updates to your server; no long-polling in production.
 
-1. **Neo4j (Docker):** `docker compose up -d` — Neo4j on ports 7474 (HTTP) and 7687 (Bolt).
-2. **Env:** Copy [.env.example](.env.example) to `.env` and set `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `TELEGRAM_BOT_TOKEN`.
-3. **Run:** `pip install -e ".[bot]"` (or install neo4j, python-telegram-bot, python-dotenv), then `python -m bot`.
+1. **Docker (recommended):** `docker compose up -d` — starts Neo4j and the backend. Backend: http://localhost:8000 (health: `GET /health`, API: `GET/POST /contacts`, `GET /contacts/search?q=...`, Telegram: `POST /webhook/telegram`).
+2. **Env:** Copy [.env.example](.env.example) to `.env` and set `NEO4J_*`, `TELEGRAM_BOT_TOKEN`.
+3. **Set Telegram webhook:** In production, your backend must be reachable over HTTPS. Set the webhook URL to `https://<your-domain>/webhook/telegram` (e.g. via Telegram Bot API or a one-off script). Then Telegram will POST updates to that URL; no need to run a separate bot process.
+4. **Run without Docker:** `pip install -e ".[bot,api]"`, start Neo4j (e.g. `docker compose up -d neo4j`), then `uvicorn api.main:app --reload --port 8000`. Again, set the webhook URL to your public HTTPS endpoint for Telegram to work.
+
+**Local dev without a public URL:** Use polling so Telegram doesn’t need to reach your machine: set `USE_POLLING=1`, then run `python -m bot` (same contact flow; Neo4j must be running). Alternatively use a tunnel (e.g. ngrok) and point the webhook at it.
 
 Commands in Telegram: share a contact to add (then send context text), `/list`, `/search <keyword>`.
 
@@ -47,10 +50,12 @@ Project tasks, user stories, and status are tracked in **Notion**. Branches are 
 
 - **`src/`** — Installable packages (src layout: tests run against installed package)
   - **`src/bimoi/`** — Core (domain, application, infrastructure)
-  - **`src/bot/`** — Production Telegram bot; run with `python -m bot`
+  - **`src/api/`** — FastAPI backend (REST + Telegram webhook); run with `uvicorn api.main:app`
+  - **`src/bot/`** — Telegram polling entry point for local dev (`USE_POLLING=1 python -m bot`)
 - **`docs/PROJECT_CONTEXT.md`** — Full product and domain spec for the MVP
 - **`tests/`** — Unit and integration tests (integration tests require Docker)
 - **`poc/`** — Standalone Telegram contact-card POC (unchanged)
-- **`docker-compose.yml`** — Neo4j for local development
-- **`.env.example`** — NEO4J_*, TELEGRAM_BOT_TOKEN for the production bot
+- **`Dockerfile`** — Backend image (FastAPI + uvicorn)
+- **`docker-compose.yml`** — Neo4j + backend services
+- **`.env.example`** — NEO4J_*, TELEGRAM_BOT_TOKEN
 - **`.github/workflows/test.yml`** — Run tests on every push

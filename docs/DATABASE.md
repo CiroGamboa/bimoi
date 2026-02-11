@@ -1,24 +1,25 @@
 # Neo4j graph model (Bimoi)
 
-All data is scoped by `user_id`. Today there is a single implicit user (`user_id="default"`); when you add authentication, pass the authenticated user id into the repository.
+All data is scoped by `user_id`. One node type (**Person**) is used for both the account owner and their contacts; an attribute **registered** distinguishes them.
 
 ## Graph structure
 
-- **User** — One node per (future) account. Properties: `id` (string). Single user today = one User with `id = "default"`.
-- **Person** — A contact known by that user. Properties: `id`, `name`, `phone_number` (optional), `external_id` (optional), `created_at`.
-- **RelationshipContext** — The user’s free-text description of why the person matters. Properties: `id`, `description`, `created_at`.
+- **Person** — Single label for everyone in the graph.
+  - **Account owner (registered):** `Person { id: user_id, registered: true }`. One per account; created with `MERGE` when the first contact is added.
+  - **Contact (not registered):** `Person { id, name, phone_number?, external_id?, created_at, registered: false }`. Created when the user adds a contact.
+- **RelationshipContext** — Unchanged: `id`, `description`, `created_at`. One per contact via `(Person)-[:HAS_CONTEXT]->(RelationshipContext)`.
 
 **Edges:**
 
-- `(User)-[:KNOWS]->(Person)` — Each Person is owned by exactly one User.
-- `(Person)-[:HAS_CONTEXT]->(RelationshipContext)` — One-to-one; creating a contact creates Person + RelationshipContext + both edges in one transaction.
+- `(owner:Person {registered: true})-[:KNOWS]->(contact:Person {registered: false})` — Contacts are linked to the account owner.
+- `(contact:Person)-[:HAS_CONTEXT]->(RelationshipContext)` — One-to-one per contact.
 
 ## Scoping
 
-- **add:** `MERGE` the User by `user_id`, then create Person and RelationshipContext and link them to the User.
-- **get_by_id, list_all, find_duplicate:** All queries match `(u:User {id: $user_id})-[:KNOWS]->(p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)` so each user only sees their own contacts. Duplicate check (same phone or external_id) is per user.
+- **add:** `MERGE` the owner `Person { id: user_id, registered: true }`, then `CREATE` the contact Person with `registered: false`, the RelationshipContext, and the edges.
+- **get_by_id, list_all, find_duplicate:** All queries match from the owner and restrict to `p.registered = false` so only contacts (not the account node) are returned.
 
 ## Implementation
 
 - [src/bimoi/infrastructure/persistence/neo4j_repository.py](../src/bimoi/infrastructure/persistence/neo4j_repository.py) — `Neo4jContactRepository(driver, user_id="default")`.
-- Integration tests in [tests/test_neo4j_repository.py](../tests/test_neo4j_repository.py) use testcontainers (short-lived Neo4j) and cover add, get_by_id, list_all, find_duplicate, and multi-user isolation.
+- Integration tests in [tests/test_neo4j_repository.py](../tests/test_neo4j_repository.py) use testcontainers and cover add, get_by_id, list_all, find_duplicate, and multi-user isolation.
