@@ -13,6 +13,8 @@ This file gives LLMs and other agents the main pointers to understand and work o
 | **Full product scope, requirements, user stories, domain model** | [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) — canonical source of truth |
 | **Domain types (Person, RelationshipContext)** | [domain.py](domain.py) — use these types when implementing features |
 | **Core business logic (contact flow, list, search)** | [bimoi/](bimoi/) — ContactService, ContactRepository, ContactCardData |
+| **Neo4j persistence** | [bimoi.persistence](bimoi/persistence/) — Neo4jContactRepository |
+| **Production Telegram bot** | [bot/](bot/) — run with `python -m bot` (Neo4j + ContactService) |
 | **Human-facing overview and POC instructions** | [README.md](README.md) |
 | **Telegram POC (connect + read contact card)** | [poc/](poc/) — [poc/README.md](poc/README.md) for setup and run |
 
@@ -23,8 +25,13 @@ This file gives LLMs and other agents the main pointers to understand and work o
 - **POC deps:** `pip install -r poc/requirements.txt`
 - **POC token:** Set `TELEGRAM_BOT_TOKEN` (e.g. in `poc/.env`; see `poc/.env.example`). Get token from @BotFather.
 - **Run POC:** `python poc/bot.py`
+- **Production bot:** Start Neo4j with `docker compose up -d`, set `.env` (see [.env.example](.env.example)), then `pip install -e ".[bot]"` and `python -m bot`.
 - **Tests:** `pip install -r requirements-dev.txt` then `pytest tests/ -v`. CI runs tests on every push.
 - **Code quality (pre-commit):** `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
+
+## Tasks and status (Notion)
+
+Project tasks and user stories live in **Notion**. Branch naming convention: `feature/US-<id>-<slug>` (e.g. `feature/US-1-add-contact`). When the user asks for project status or the user story for the current branch, use **Notion MCP** to query the tasks database and summarize (search or filter by Branch or ID). Configure Notion MCP in Cursor (Settings → MCP) if not already connected.
 
 ## Conventions
 

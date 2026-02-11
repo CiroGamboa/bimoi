@@ -9,9 +9,14 @@ requires-python = ">=3.10"
 dev = [
     "pytest>=8.0",
 ]
+bot = [
+    "neo4j>=5.0",
+    "python-telegram-bot>=21.0",
+    "python-dotenv>=1.0.0",
+]
 
 [tool.setuptools.packages.find]
-include = ["bimoi*"]
+include = ["bimoi*", "bot*"]
 
 [tool.isort]
 profile = "black"
@@ -42,3 +47,4 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # load_dotenv() must run before other imports so .env is loaded first
 "poc/bot.py" = ["E402"]
+"bot/__main__.py" = ["E402"]

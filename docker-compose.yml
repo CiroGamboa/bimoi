@@ -1,0 +1,20 @@
+# Neo4j for local development. Run: docker compose up -d
+# Connect with bolt://localhost:7687 (user neo4j, password from NEO4J_AUTH or below).
+services:
+  neo4j:
+    image: neo4j:5
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  neo4j_data:
