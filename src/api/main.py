@@ -49,6 +49,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Debug log path (workspace .cursor) for instrumentation
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug.log"
+
+
+def _debug_log(payload: dict) -> None:
+    try:
+        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(__import__("json").dumps(payload) + "\n")
+    except Exception:
+        pass
+
 # Optional: multi-user placeholder (REST)
 USER_ID_HEADER = "X-User-Id"
 DEFAULT_USER_ID = "default"
@@ -220,13 +232,12 @@ def search_contacts(
 # --- Telegram webhook ---
 
 # Centralized copy for /start, /help, and all bot replies
-_WELCOME_LINE = "Add contacts by sharing a card; I'll ask why they matter."
-_HOW_TO_ADD_CONTACT = "To add someone: tap the attachment icon, choose Contact, then send their card here."
-_COMMAND_LIST = (
-    "You can:\n"
-    "• /list — see all your contacts\n"
-    "• /search <word> — search by description (e.g. /search work)"
+_WELCOME_MSG = (
+    "Hi! I help you remember who's who in your network — and why they matter.\n\n"
+    "To add a contact, just share their card (tap the attachment icon → Contact)."
 )
+# Kept for /help or other references if needed
+_HOW_TO_ADD_CONTACT = "To add someone: tap the attachment icon, choose Contact, then send their card here."
 _EMPTY_LIST_MSG = (
     "No contacts yet. To add one: share a contact card (attachment → Contact)."
 )
@@ -377,6 +388,55 @@ def _add_more_or_done_keyboard(person_id: str):
     )
 
 
+def _welcome_inline_keyboard(has_contacts: bool = True):
+    """Inline keyboard for welcome/help. If has_contacts is False, only 'Add contact'; otherwise List, Search, Add contact."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    if has_contacts:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("List contacts", callback_data="cmd:list"),
+                    InlineKeyboardButton("Search", callback_data="cmd:search"),
+                ],
+                [InlineKeyboardButton("Add contact", callback_data="cmd:add")],
+            ]
+        )
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Add contact", callback_data="cmd:add")]]
+    )
+
+
+async def _send_contact_results_impl(bot, chat_id: int, summaries: list) -> None:
+    """Send each contact as card + context with 'Add relationship context' inline button. Used by webhook and callback."""
+    add_ctx_kb = _add_context_inline_keyboard
+    for s in summaries:
+        if s.phone_number and s.phone_number.strip():
+            first_name, last_name = _first_last(s.name)
+            try:
+                await bot.send_contact(
+                    chat_id=chat_id,
+                    phone_number=s.phone_number.strip(),
+                    first_name=first_name,
+                    last_name=last_name,
+                )
+                await bot.send_message(
+                    chat_id=chat_id, text=f"— {s.context}", reply_markup=add_ctx_kb(s.person_id)
+                )
+            except Exception:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=_format_contact_card(s),
+                    reply_markup=add_ctx_kb(s.person_id),
+                )
+        else:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=_format_contact_card(s),
+                reply_markup=add_ctx_kb(s.person_id),
+            )
+
+
 @app.post("/webhook/telegram")
 async def webhook_telegram(request: Request):
     """Handle Telegram updates. Set Telegram webhook URL to https://<your-domain>/webhook/telegram"""
@@ -412,12 +472,34 @@ async def webhook_telegram(request: Request):
     bot = Bot(token=token)
     service = get_service(user_id, app)
 
-    # Inline button callbacks: Add more context / I'm done (after adding context), or Add context (from list/search)
+    # Inline button callbacks: Add more context / I'm done (after adding context), or Add context (from list/search), or welcome commands
     if update.callback_query:
         cq = update.callback_query
         cq_chat_id = cq.message.chat.id if cq.message and cq.message.chat else chat_id
         cq_chat_id = int(cq_chat_id) if cq_chat_id is not None else None
         data = (cq.data or "").strip()
+
+        if data == "cmd:list" and cq_chat_id is not None:
+            await bot.answer_callback_query(callback_query_id=cq.id)
+            summaries = service.list_contacts()
+            if not summaries:
+                await bot.send_message(chat_id=cq_chat_id, text=_EMPTY_LIST_MSG)
+            else:
+                await _send_contact_results_impl(bot, cq_chat_id, summaries)
+            return {}
+        if data == "cmd:search" and cq_chat_id is not None:
+            await bot.answer_callback_query(callback_query_id=cq.id)
+            _search_pending_by_chat[cq_chat_id] = True
+            await bot.send_message(chat_id=cq_chat_id, text=_SEARCH_PROMPT)
+            return {}
+        if data == "cmd:add" and cq_chat_id is not None:
+            await bot.answer_callback_query(callback_query_id=cq.id)
+            await bot.send_message(
+                chat_id=cq_chat_id,
+                text=_ADD_CONTACT_HOWTO,
+                reply_markup=_main_keyboard(),
+            )
+            return {}
 
         if data.startswith("addmore:") and cq_chat_id is not None:
             person_id = data[8:].strip()
@@ -462,30 +544,20 @@ async def webhook_telegram(request: Request):
         return {}
 
     async def send(text: str, reply_markup=None) -> None:
-        await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+        # #region agent log
+        _debug_log({"id": "send_call", "timestamp": __import__("time").time() * 1000, "location": "main.py:send", "message": "send() called", "data": {"reply_markup_is_none": reply_markup is None, "reply_markup_type": type(reply_markup).__name__ if reply_markup else None}, "hypothesisId": "H3"})
+        # #endregion
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+        except Exception as e:
+            # #region agent log
+            _debug_log({"id": "send_error", "timestamp": __import__("time").time() * 1000, "location": "main.py:send", "message": "send_message raised", "data": {"error_type": type(e).__name__, "error_str": str(e)[:200]}, "hypothesisId": "H3"})
+            # #endregion
+            raise
 
     async def send_contact_results(summaries: list[ContactSummary]) -> None:
         """Send each contact as a Telegram contact card (if phone) + context, or as text. Each with 'Add relationship context' button."""
-        add_ctx_kb = _add_context_inline_keyboard
-        for s in summaries:
-            if s.phone_number and s.phone_number.strip():
-                first_name, last_name = _first_last(s.name)
-                try:
-                    await bot.send_contact(
-                        chat_id=chat_id,
-                        phone_number=s.phone_number.strip(),
-                        first_name=first_name,
-                        last_name=last_name,
-                    )
-                    await send(f"— {s.context}", reply_markup=add_ctx_kb(s.person_id))
-                except Exception:
-                    await send(
-                        _format_contact_card(s), reply_markup=add_ctx_kb(s.person_id)
-                    )
-            else:
-                await send(
-                    _format_contact_card(s), reply_markup=add_ctx_kb(s.person_id)
-                )
+        await _send_contact_results_impl(bot, chat_id, summaries)
 
     # Contact shared (Contact object from python-telegram-bot)
     if update.message and update.message.contact:
@@ -521,6 +593,9 @@ async def webhook_telegram(request: Request):
     if update.message and update.message.text:
         text = (update.message.text or "").strip()
         t = text.lower()
+        # #region agent log
+        _debug_log({"id": "text_msg", "timestamp": __import__("time").time() * 1000, "location": "main.py:text", "message": "text message", "data": {"raw": (update.message.text or "")[:80], "stripped": text[:80], "is_start": text == "/start", "is_help": text == "/help"}, "hypothesisId": "H1"})
+        # #endregion
         # Clear search-pending and add-context pending when user runs another command or list/search
         if text in (
             "/start",
@@ -534,12 +609,10 @@ async def webhook_telegram(request: Request):
             _clear_pending_add_context_from_file(user_id, chat_id)
 
         if text == "/start":
-            welcome = f"{_WELCOME_LINE}\n{_HOW_TO_ADD_CONTACT}\n\n{_COMMAND_LIST}"
-            await send(welcome, reply_markup=_main_keyboard())
+            await send(_WELCOME_MSG)
             return {}
         if text == "/help":
-            help_text = f"{_WELCOME_LINE}\n{_HOW_TO_ADD_CONTACT}\n\n{_COMMAND_LIST}"
-            await send(help_text, reply_markup=_main_keyboard())
+            await send(_WELCOME_MSG)
             return {}
         if text == "/list" or text == "List contacts" or t == "list":
             summaries = service.list_contacts()
