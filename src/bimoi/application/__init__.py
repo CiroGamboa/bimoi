@@ -2,6 +2,9 @@
 
 from bimoi.application.contact_service import ContactService
 from bimoi.application.dto import (
+    AddContextInvalid,
+    AddContextNotFound,
+    AddContextSuccess,
     ContactCardData,
     ContactCreated,
     ContactSummary,
@@ -13,6 +16,9 @@ from bimoi.application.dto import (
 from bimoi.application.ports import ContactRepository
 
 __all__ = [
+    "AddContextInvalid",
+    "AddContextNotFound",
+    "AddContextSuccess",
     "ContactRepository",
     "ContactService",
     "ContactCardData",

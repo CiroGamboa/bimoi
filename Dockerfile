@@ -11,7 +11,7 @@ COPY src ./src
 # Install deps (bot + api extras: neo4j, telegram, fastapi, uvicorn)
 RUN pip install --no-cache-dir -e ".[bot,api]"
 
-# Default: run FastAPI. Override with command to run polling bot (USE_POLLING=1 python -m bot)
+# Default: run FastAPI (Telegram bot via webhook at /webhook/telegram)
 ENV PORT=8000
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT}"]

@@ -1,7 +1,7 @@
 """In-memory implementation of ContactRepository (no DB)."""
 
 from bimoi.application.dto import ContactCardData
-from bimoi.domain import Person
+from bimoi.domain import Person, RelationshipContext
 
 
 def _normalize_telegram_id(value: int | str | None) -> str | None:
@@ -38,3 +38,25 @@ class InMemoryContactRepository:
             if card_phone and person.phone_number and person.phone_number == card_phone:
                 return person
         return None
+
+    def append_context(self, person_id: str, additional_text: str) -> bool:
+        person = self._by_id.get(person_id)
+        if not person:
+            return False
+        ctx = person.relationship_context
+        suffix = "\n\n— " + (additional_text or "").strip()
+        new_ctx = RelationshipContext(
+            id=ctx.id,
+            description=ctx.description + suffix,
+            created_at=ctx.created_at,
+        )
+        new_person = Person(
+            id=person.id,
+            name=person.name,
+            phone_number=person.phone_number,
+            external_id=person.external_id,
+            created_at=person.created_at,
+            relationship_context=new_ctx,
+        )
+        self._by_id[person_id] = new_person
+        return True

@@ -1,6 +1,9 @@
 """Unit tests for ContactService. No Telegram; in-memory repo and ContactCardData only."""
 
 from bimoi.application import (
+    AddContextInvalid,
+    AddContextNotFound,
+    AddContextSuccess,
     ContactCardData,
     ContactCreated,
     ContactService,
@@ -66,11 +69,15 @@ def test_duplicate_by_phone() -> None:
     card1 = ContactCardData(name="Alice", phone_number="+111")
     r1 = service.receive_contact_card(card1)
     assert isinstance(r1, PendingContact)
-    service.submit_context(r1.pending_id, "Engineer")
+    created = service.submit_context(r1.pending_id, "Engineer")
+    assert isinstance(created, ContactCreated)
+    person_id = created.person_id
 
     card2 = ContactCardData(name="Alice Other", phone_number="+111")
     r2 = service.receive_contact_card(card2)
     assert isinstance(r2, Duplicate)
+    assert r2.person_id == person_id
+    assert r2.name == "Alice"
     assert len(service.list_contacts()) == 1
 
 
@@ -79,11 +86,15 @@ def test_duplicate_by_telegram_user_id() -> None:
     card1 = ContactCardData(name="Bob", telegram_user_id=999)
     r1 = service.receive_contact_card(card1)
     assert isinstance(r1, PendingContact)
-    service.submit_context(r1.pending_id, "Designer")
+    created = service.submit_context(r1.pending_id, "Designer")
+    assert isinstance(created, ContactCreated)
+    person_id = created.person_id
 
     card2 = ContactCardData(name="Bob Clone", telegram_user_id=999)
     r2 = service.receive_contact_card(card2)
     assert isinstance(r2, Duplicate)
+    assert r2.person_id == person_id
+    assert r2.name == "Bob"
     assert len(service.list_contacts()) == 1
 
 
@@ -175,3 +186,58 @@ def test_search_empty_keyword_returns_empty() -> None:
     service.submit_context(p.pending_id, "Some context")
     assert len(service.search_contacts("")) == 0
     assert len(service.search_contacts("   ")) == 0
+
+
+def test_get_contact_returns_summary() -> None:
+    service = _service()
+    card = ContactCardData(name="Ivan")
+    p = service.receive_contact_card(card)
+    service.submit_context(p.pending_id, "Backend dev")
+    listed = service.list_contacts()
+    assert len(listed) == 1
+    person_id = listed[0].person_id
+
+    contact = service.get_contact(person_id)
+    assert contact is not None
+    assert contact.name == "Ivan"
+    assert contact.context == "Backend dev"
+    assert contact.person_id == person_id
+
+    assert service.get_contact("nonexistent-uuid") is None
+
+
+def test_add_context_appends_and_search_finds() -> None:
+    service = _service()
+    card = ContactCardData(name="Julia")
+    p = service.receive_contact_card(card)
+    created = service.submit_context(p.pending_id, "Original note")
+    assert isinstance(created, ContactCreated)
+    person_id = created.person_id
+
+    result = service.add_context(person_id, "Extra note from 2024")
+    assert isinstance(result, AddContextSuccess)
+    assert result.name == "Julia"
+
+    listed = service.list_contacts()
+    assert len(listed) == 1
+    assert "Original note" in listed[0].context
+    assert "Extra note from 2024" in listed[0].context
+    assert service.search_contacts("Extra")[0].name == "Julia"
+
+
+def test_add_context_unknown_person_returns_not_found() -> None:
+    service = _service()
+    result = service.add_context("nonexistent-uuid", "Some text")
+    assert isinstance(result, AddContextNotFound)
+    assert result.person_id == "nonexistent-uuid"
+
+
+def test_add_context_empty_text_returns_invalid() -> None:
+    service = _service()
+    card = ContactCardData(name="Kate")
+    p = service.receive_contact_card(card)
+    created = service.submit_context(p.pending_id, "Initial")
+    assert isinstance(created, ContactCreated)
+
+    assert isinstance(service.add_context(created.person_id, ""), AddContextInvalid)
+    assert isinstance(service.add_context(created.person_id, "   "), AddContextInvalid)

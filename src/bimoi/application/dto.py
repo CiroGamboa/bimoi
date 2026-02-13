@@ -39,7 +39,8 @@ class PendingContact:
 class Duplicate:
     """A contact with this phone or Telegram user id already exists."""
 
-    pass
+    person_id: str
+    name: str
 
 
 @dataclass(frozen=True)
@@ -65,3 +66,27 @@ class PendingNotFound:
     """No pending contact for the given id (wrong id or already consumed)."""
 
     pending_id: str
+
+
+# --- add_context results ---
+
+
+@dataclass(frozen=True)
+class AddContextSuccess:
+    """Additional context was appended to the contact."""
+
+    name: str
+
+
+@dataclass(frozen=True)
+class AddContextNotFound:
+    """No contact found for the given person_id."""
+
+    person_id: str
+
+
+@dataclass(frozen=True)
+class AddContextInvalid:
+    """Context text was empty or invalid."""
+
+    pass

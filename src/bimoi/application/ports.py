@@ -24,3 +24,7 @@ class ContactRepository(Protocol):
     def find_duplicate(self, card: ContactCardData) -> Person | None:
         """Return an existing contact matching by telegram_user_id or phone_number, or None."""
         ...
+
+    def append_context(self, person_id: str, additional_text: str) -> bool:
+        """Append text to the contact's context. Returns True if updated, False if not found."""
+        ...

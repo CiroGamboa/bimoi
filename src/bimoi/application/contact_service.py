@@ -3,6 +3,9 @@
 import uuid
 
 from bimoi.application.dto import (
+    AddContextInvalid,
+    AddContextNotFound,
+    AddContextSuccess,
     ContactCardData,
     ContactCreated,
     ContactSummary,
@@ -33,7 +36,7 @@ class ContactService:
 
         existing = self._repo.find_duplicate(card)
         if existing is not None:
-            return Duplicate()
+            return Duplicate(person_id=existing.id, name=existing.name)
 
         pending_id = str(uuid.uuid4())
         self._pending_id = pending_id
@@ -115,3 +118,32 @@ class ContactService:
                     )
                 )
         return out
+
+    def get_contact(self, person_id: str) -> ContactSummary | None:
+        """Return a contact by id, or None if not found."""
+        person = self._repo.get_by_id(person_id)
+        if not person:
+            return None
+        ctx = person.relationship_context
+        return ContactSummary(
+            name=person.name,
+            context=ctx.description,
+            created_at=person.created_at,
+            person_id=person.id,
+            phone_number=person.phone_number,
+        )
+
+    def add_context(
+        self, person_id: str, context_text: str
+    ) -> AddContextSuccess | AddContextNotFound | AddContextInvalid:
+        """Append context to an existing contact."""
+        context_clean = (context_text or "").strip()
+        if not context_clean:
+            return AddContextInvalid()
+
+        ok = self._repo.append_context(person_id, context_clean)
+        if not ok:
+            return AddContextNotFound(person_id=person_id)
+
+        contact = self.get_contact(person_id)
+        return AddContextSuccess(name=contact.name if contact else "Unknown")

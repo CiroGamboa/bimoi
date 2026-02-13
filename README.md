@@ -2,7 +2,7 @@
 
 Bimoi helps you externalize your real relationships: who you know and why they matter. Instead of that knowledge living only in memory or chat history, you capture it at the moment it’s freshest—by sharing a contact and adding context—with minimal friction.
 
-**Current status:** A **FastAPI backend** exposes a REST API and the **Telegram webhook**; one service handles all clients. Contacts are stored in **Neo4j**. Run the backend in Docker or with uvicorn; for local dev without a public URL you can use polling (`USE_POLLING=1 python -m bot`). [poc/](poc/README.md) remains a standalone POC.
+**Current status:** A **FastAPI backend** exposes a REST API and the **Telegram webhook**; one service handles all clients. Contacts are stored in **Neo4j**. In production the bot receives updates via webhook; for local development you expose the backend with ngrok and set the webhook to the ngrok URL. [poc/](poc/README.md) remains a standalone POC.
 
 ## Project context
 
@@ -24,16 +24,57 @@ The POC in `poc/` checks that we can connect to Telegram and read a contact card
 
 ## Production backend (FastAPI + Neo4j + Telegram webhook)
 
-One backend serves the **REST API** and the **Telegram bot** (via webhook). Telegram sends updates to your server; no long-polling in production.
+One backend serves the **REST API** and the **Telegram bot** (via webhook). Telegram sends updates to your server.
 
 1. **Docker:** `docker compose up -d` — starts Neo4j and the backend (e.g. http://localhost:8010 for health and API).
 2. **Env:** Copy [.env.example](.env.example) to `.env` and set `NEO4J_*`, `TELEGRAM_BOT_TOKEN`.
-3. **Telegram bot with Docker:** Telegram’s servers cannot reach `localhost`. So after `docker compose up`, the bot will not receive messages until you either:
-   - **Option A (webhook):** Expose your backend with a public HTTPS URL (e.g. `ngrok http 8010`), then set the webhook: `curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://YOUR_NGROK_URL/webhook/telegram"`. Then messages to the bot will work.
-   - **Option B (polling, no tunnel):** Stop the backend container and run the bot on your machine: `docker compose stop backend`, then `USE_POLLING=1 python -m bot` (Neo4j stays in Docker). The bot will receive messages without any public URL.
-4. **Run without Docker:** `pip install -e ".[bot,api]"`, start Neo4j (e.g. `docker compose up -d neo4j`), then `uvicorn api.main:app --reload --port 8000`. Set the webhook to your public HTTPS endpoint, or use `USE_POLLING=1 python -m bot` for local testing.
+3. **Webhook:** In production, point the Telegram webhook to `https://<your-domain>/webhook/telegram`. For local development, use ngrok (see below).
 
 Commands in Telegram: share a contact to add (then send context text), `/list`, `/search <keyword>`.
+
+---
+
+## Development with ngrok
+
+Telegram cannot reach `localhost`, so to test the bot locally you expose your backend with a tunnel and set the webhook to that URL.
+
+**Prerequisites:** [ngrok](https://ngrok.com/) installed, `TELEGRAM_BOT_TOKEN` in `.env`.
+
+### One-command start / stop
+
+From the repo root:
+
+```bash
+./scripts/dev-up.sh    # Start Neo4j + backend + ngrok, set webhook
+./scripts/dev-down.sh  # Stop ngrok and Docker
+```
+
+`dev-up.sh` brings up Docker (Neo4j + backend), starts ngrok in the background, waits for the tunnel, then runs `set_webhook_ngrok.py`. Use your bot in Telegram. Optionally run `python scripts/set_telegram_commands.py` so the "/" menu shows start, list, and search. When you're done, run `dev-down.sh` to stop everything.
+
+### Manual steps (alternative)
+
+1. **Start the backend** (choose one):
+   - **Docker:** `docker compose up -d` — backend on **port 8010**.
+   - **Local:** `pip install -e ".[bot,api]"`, `docker compose up -d neo4j`, then `uvicorn api.main:app --reload --port 8000` — backend on **port 8000**.
+
+2. **Start ngrok** against the same port as the backend:
+   - Docker: `ngrok http 8010`
+   - Local uvicorn: `ngrok http 8000`
+   Leave this terminal open; ngrok will show a public HTTPS URL (e.g. `https://abc123.ngrok-free.app`).
+
+3. **Set the Telegram webhook** to the ngrok URL:
+   ```bash
+   python scripts/set_webhook_ngrok.py
+   ```
+   The script reads the current ngrok tunnel from `http://127.0.0.1:4040` and sets the webhook to `https://<ngrok-url>/webhook/telegram`. Use the same port in step 2 as your backend (8010 for Docker, 8000 for uvicorn).
+
+4. **Use the bot** in Telegram: open your bot, send `/start`, share a contact, etc. Updates go to ngrok → your backend.
+
+The backend runs with **auto-reload** (`--reload`), so code changes under `src/` should apply without restarting. If changes don't appear (e.g. Docker on some hosts), run `docker compose restart backend`.
+
+**To stop:** Run `./scripts/dev-down.sh`.
+
+**No response in Telegram?** Run `./scripts/dev-check-telegram.sh` from the repo root. It checks: webhook URL, whether the backend container has the token, backend health, and recent logs. Ensure `.env` contains a line `TELEGRAM_BOT_TOKEN=<your_bot_token>` (from @BotFather). If you changed `.env` after starting, run `./scripts/dev-down.sh` then `./scripts/dev-up.sh` so the backend picks up the token.
 
 ## Core logic and tests
 
@@ -51,7 +92,7 @@ Project tasks, user stories, and status are tracked in **Notion**. Branches are 
 - **`src/`** — Installable packages (src layout: tests run against installed package)
   - **`src/bimoi/`** — Core (domain, application, infrastructure)
   - **`src/api/`** — FastAPI backend (REST + Telegram webhook); run with `uvicorn api.main:app`
-  - **`src/bot/`** — Telegram polling entry point for local dev (`USE_POLLING=1 python -m bot`)
+  - **`src/bot/`** — Bot runs via FastAPI webhook only; `python -m bot` prints instructions
 - **`docs/PROJECT_CONTEXT.md`** — Full product and domain spec for the MVP
 - **`tests/`** — Unit and integration tests (integration tests require Docker)
 - **`poc/`** — Standalone Telegram contact-card POC (unchanged)

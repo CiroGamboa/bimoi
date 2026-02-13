@@ -112,3 +112,23 @@ def test_multi_user_isolation(clean_neo4j):
 
     assert repo_b.get_by_id(person.id) is None
     assert repo_a.get_by_id(person.id) is not None
+
+
+def test_append_context(clean_neo4j):
+    repo = Neo4jContactRepository(clean_neo4j, user_id="default")
+    ctx = RelationshipContext(description="Original context")
+    person = Person(
+        name="Dave",
+        phone_number="+444",
+        relationship_context=ctx,
+    )
+    repo.add(person)
+
+    assert repo.append_context(person.id, "Extra note") is True
+    found = repo.get_by_id(person.id)
+    assert found is not None
+    assert "Original context" in found.relationship_context.description
+    assert "Extra note" in found.relationship_context.description
+    assert "\n\n— " in found.relationship_context.description
+
+    assert repo.append_context("nonexistent-id", "Text") is False

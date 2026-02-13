@@ -1,1 +1,1 @@
-# Production Telegram bot: ContactService + Neo4j. Run with python -m bot.
+# Telegram bot runs via FastAPI webhook (api.main). Run backend + set webhook; see README.

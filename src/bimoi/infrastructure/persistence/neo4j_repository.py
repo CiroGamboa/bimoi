@@ -121,6 +121,24 @@ class Neo4jContactRepository:
             return None
         return _record_to_person(record)
 
+    def append_context(self, person_id: str, additional_text: str) -> bool:
+        """Append suffix to the contact's context. Returns True if updated, False if not found."""
+        suffix = "\n\n— " + (additional_text or "").strip()
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (owner:Person {id: $user_id, registered: true})-[:KNOWS]->
+                      (p:Person)-[:HAS_CONTEXT]->(c:RelationshipContext)
+                WHERE p.id = $person_id AND p.registered = false
+                SET c.description = c.description + $suffix
+                RETURN 1 AS ok
+                """,
+                user_id=self._user_id,
+                person_id=person_id,
+                suffix=suffix,
+            )
+            return result.single() is not None
+
 
 def _record_to_person(record) -> Person:
     p = record["p"]
