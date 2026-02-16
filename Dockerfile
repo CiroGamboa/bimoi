@@ -4,11 +4,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy project files needed for editable install (setuptools needs src/ and README)
+# git required for pip to install xstate from git URL (api extra)
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files needed for editable install and runtime (flows/ for XState machine)
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY flows ./flows
 
-# Install deps (bot + api extras: neo4j, telegram, fastapi, uvicorn)
+# Install deps (bot + api extras: neo4j, telegram, fastapi, uvicorn, xstate)
 RUN pip install --no-cache-dir -e ".[bot,api]"
 
 # Default: run FastAPI (Telegram bot via webhook at /webhook/telegram)

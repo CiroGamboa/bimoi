@@ -20,6 +20,9 @@ api = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "httpx>=0.27.0",
+    "pyyaml>=6.0",
+    "xstate @ git+https://github.com/statelyai/xstate-python.git",
+    "Js2Py>=0.71,<0.72",
 ]
 
 [tool.setuptools.packages.find]

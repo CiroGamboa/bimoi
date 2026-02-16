@@ -1,0 +1,307 @@
+# Bimoi Telegram bot flow. Portable graph: nodes + edges; messages and keyboards by id.
+id: bimoi_telegram
+version: "1.0"
+start_node: start
+
+messages:
+  welcome: |
+    Hi! I help you remember who's who in your network — and why they matter.
+
+    To add a contact, just share their card (tap the attachment icon → Contact).
+  empty_list: "No contacts yet. To add one: share a contact card (attachment → Contact)."
+  awaiting_context_prompt: "Got it. Send me a short description of why they matter to you. e.g. 'Colleague from Project X, great at reviews'."
+  duplicate_offer_add_context: "They're already in your contacts. Send a message to add more context about {name}.\nE.g. We met at… • We work together in… • Who introduced us: …"
+  add_contact_howto: "To add a contact, share their card: tap the attachment icon, choose Contact, then send it here."
+  search_prompt: "Type a keyword to search in your contact descriptions (e.g. work)."
+  search_usage: "Use /search <word> to search in your descriptions (e.g. /search work)."
+  no_match: "No contacts match that keyword."
+  add_context_button_prompt: "Send a message to add more context about {name}.\nE.g. We met at… • We work together in… • Who introduced us: …"
+  add_more_context_again: "Send another message to add more context about {name}.\nE.g. We met at… • We work together in… • Who introduced us: …"
+  add_context_done: "Done. You can find them with Search."
+  add_context_not_found: "That contact couldn't be found."
+  add_context_empty: "Please send some text to add."
+  add_more_or_done: "Added. Add more or done?"
+  contact_created: "Contact {name} added. You can find them later with Search using a word from their description."
+  pending_lost: "That contact wasn't pending anymore. Share their card again to add them."
+  send_contact_first: "Send a contact card first, then I'll ask for a description."
+  unsupported: "I'm not sure what to do with that. Try the buttons below, or share a contact card to add someone to your network."
+
+# Keyboard names; adapter resolves to Telegram markup (main, welcome, add_context, add_more_or_done)
+keyboards:
+  - main
+  - welcome
+  - welcome_no_contacts
+  - add_context
+  - add_more_or_done
+
+nodes:
+  - id: start
+    type: router
+    edges:
+      - event_type: contact_shared
+        next: receive_contact
+      - event_type: text
+        when: command_start
+        next: welcome
+      - event_type: text
+        when: command_help
+        next: welcome
+      - event_type: text
+        when: command_list
+        next: do_list
+      - event_type: text
+        when: command_search
+        next: prompt_search
+      - event_type: text
+        when: command_add_contact
+        next: prompt_add_contact
+      - event_type: text
+        when: search_keyword
+        next: do_search
+      - event_type: text
+        when: add_context_text
+        next: do_add_context
+      - event_type: text
+        when: pending_context_text
+        next: do_submit_context
+      - event_type: text
+        when: unsupported
+        next: unsupported_msg
+      - event_type: callback
+        when: cmd_list
+        next: do_list
+      - event_type: callback
+        when: cmd_search
+        next: prompt_search
+      - event_type: callback
+        when: cmd_add
+        next: prompt_add_contact
+      - event_type: callback
+        when: addmore
+        next: prompt_add_more_context
+      - event_type: callback
+        when: addctx_done
+        next: add_context_done
+      - event_type: callback
+        when: person_id
+        next: prompt_add_context_for_contact
+
+  - id: welcome
+    type: send_message
+    message: welcome
+    keyboard: welcome
+    edges:
+      - next: start
+
+  - id: unsupported_msg
+    type: send_message
+    message: unsupported
+    keyboard: main
+    edges:
+      - next: start
+
+  - id: receive_contact
+    type: call_service
+    action: receive_contact_card
+    input_from: event.payload
+    edges:
+      - outcome: pending
+        next: awaiting_context
+        set_slots: { pending_id: result.pending_id }
+        message: awaiting_context_prompt
+      - outcome: duplicate
+        next: start
+        set_slots: { person_id: result.person_id, contact_name: result.name }
+        message: duplicate_offer_add_context
+      - outcome: invalid
+        next: start
+        message_from_result: reason
+
+  - id: awaiting_context
+    type: router
+    edges:
+      - event_type: text
+        when: pending_context_text
+        next: do_submit_context
+      - event_type: text
+        when: command_start
+        next: welcome
+      - event_type: text
+        when: command_help
+        next: welcome
+      - event_type: text
+        when: command_list
+        next: do_list
+      - event_type: text
+        when: command_search
+        next: prompt_search
+      - event_type: text
+        when: command_add_contact
+        next: prompt_add_contact
+      - event_type: text
+        when: unsupported
+        next: send_contact_first
+
+  - id: do_submit_context
+    type: call_service
+    action: submit_context
+    input_from: { pending_id: slots.pending_id, text: event.payload.text }
+    clear_slots: [pending_id]
+    edges:
+      - outcome: created
+        next: contact_created_msg
+        set_slots: { person_id: result.person_id, contact_name: result.name }
+        message: contact_created
+        keyboard: add_more_or_done
+      - outcome: pending_not_found
+        next: start
+        message: pending_lost
+
+  - id: contact_created_msg
+    type: router
+    edges:
+      - next: start
+
+  - id: do_list
+    type: call_service
+    action: list_contacts
+    edges:
+      - outcome: empty
+        next: start
+        message: empty_list
+      - outcome: has_results
+        next: start
+        send_contact_list: true
+
+  - id: prompt_search
+    type: send_message
+    message: search_prompt
+    set_slots: { search_pending: true }
+    edges:
+      - next: awaiting_search
+
+  - id: awaiting_search
+    type: router
+    edges:
+      - event_type: text
+        when: search_keyword
+        next: do_search
+      - event_type: text
+        when: command_start
+        next: welcome
+      - event_type: text
+        when: command_help
+        next: welcome
+      - event_type: text
+        when: command_list
+        next: do_list
+      - event_type: text
+        when: command_search
+        next: prompt_search
+      - event_type: text
+        when: command_add_contact
+        next: prompt_add_contact
+      - event_type: text
+        when: unsupported
+        next: start
+
+  - id: do_search
+    type: call_service
+    action: search_contacts
+    input_from: { keyword: event.payload.text }
+    clear_slots: [search_pending]
+    edges:
+      - outcome: empty
+        next: start
+        message: no_match
+      - outcome: has_results
+        next: start
+        send_contact_list: true
+
+  - id: prompt_add_contact
+    type: send_message
+    message: add_contact_howto
+    keyboard: main
+    edges:
+      - next: start
+
+  - id: prompt_add_context_for_contact
+    type: call_service
+    action: get_contact
+    input_from: { person_id: event.payload.person_id }
+    edges:
+      - outcome: found
+        next: start
+        set_slots: { person_id: event.payload.person_id, contact_name: result.name }
+        message: add_context_button_prompt
+      - outcome: not_found
+        next: start
+        message: add_context_not_found
+
+  - id: prompt_add_more_context
+    type: call_service
+    action: get_contact
+    input_from: { person_id: event.payload.person_id }
+    edges:
+      - outcome: found
+        next: start
+        set_slots: { person_id: event.payload.person_id, contact_name: result.name }
+        message: add_more_context_again
+      - outcome: not_found
+        next: start
+        message: add_context_not_found
+
+  - id: awaiting_add_context
+    type: router
+    edges:
+      - event_type: text
+        when: add_context_text
+        next: do_add_context
+      - event_type: text
+        when: command_start
+        next: welcome
+      - event_type: text
+        when: command_help
+        next: welcome
+      - event_type: text
+        when: command_list
+        next: do_list
+      - event_type: text
+        when: command_search
+        next: prompt_search
+      - event_type: text
+        when: command_add_contact
+        next: prompt_add_contact
+      - event_type: text
+        when: unsupported
+        next: start
+
+  - id: do_add_context
+    type: call_service
+    action: add_context
+    input_from: { person_id: slots.person_id, text: event.payload.text }
+    edges:
+      - outcome: success
+        next: start
+        message: add_more_or_done
+        keyboard: add_more_or_done
+      - outcome: not_found
+        next: start
+        message: add_context_not_found
+      - outcome: invalid
+        next: start
+        message: add_context_empty
+
+  - id: add_context_done
+    type: send_message
+    message: add_context_done
+    clear_slots: [person_id, contact_name]
+    edges:
+      - next: start
+
+  - id: send_contact_first
+    type: send_message
+    message: send_contact_first
+    keyboard: main
+    edges:
+      - next: start

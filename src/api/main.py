@@ -26,8 +26,6 @@ from neo4j import GraphDatabase
 from pydantic import BaseModel
 
 from bimoi.application import (
-    AddContextNotFound,
-    AddContextSuccess,
     ContactCardData,
     ContactCreated,
     ContactService,
@@ -49,18 +47,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Debug log path (workspace .cursor) for instrumentation
-_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug.log"
-
-
-def _debug_log(payload: dict) -> None:
-    try:
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_DEBUG_LOG_PATH, "a") as f:
-            f.write(__import__("json").dumps(payload) + "\n")
-    except Exception:
-        pass
-
 # Optional: multi-user placeholder (REST)
 USER_ID_HEADER = "X-User-Id"
 DEFAULT_USER_ID = "default"
@@ -75,7 +61,9 @@ def _get_driver():
 
 # Per-user ContactService cache (for webhook: same user keeps same pending state)
 _service_cache: dict[str, ContactService] = {}
-_pending_by_chat: dict[int, str] = {}  # chat_id -> pending_id for webhook
+
+# Flow state: (user_id, chat_id) -> { current_node_id, slots }
+_flow_state: dict[tuple[str, int], dict] = {}
 
 
 def _format_contact_card(s: ContactSummary) -> str:
@@ -229,52 +217,7 @@ def search_contacts(
     ]
 
 
-# --- Telegram webhook ---
-
-# Centralized copy for /start, /help, and all bot replies
-_WELCOME_MSG = (
-    "Hi! I help you remember who's who in your network — and why they matter.\n\n"
-    "To add a contact, just share their card (tap the attachment icon → Contact)."
-)
-# Kept for /help or other references if needed
-_HOW_TO_ADD_CONTACT = "To add someone: tap the attachment icon, choose Contact, then send their card here."
-_EMPTY_LIST_MSG = (
-    "No contacts yet. To add one: share a contact card (attachment → Contact)."
-)
-_PENDING_CONTEXT_EXAMPLE = "e.g. 'Colleague from Project X, great at reviews'."
-_SEARCH_PROMPT = "Type a keyword to search in your contact descriptions (e.g. work)."
-_SEARCH_USAGE = "Use /search <word> to search in your descriptions (e.g. /search work)."
-_CONTACT_ADDED_EXTRA = (
-    "You can find them later with Search using a word from their description."
-)
-_DUPLICATE_EXTRA = "Use List contacts or Search to find them."
-_PENDING_LOST_EXTRA = "Share their card again to add them."
-_UNSUPPORTED_INPUT_MSG = (
-    "I only accept contact cards and text. Use the buttons below: "
-    "List contacts, Search, or Add contact."
-)
-_ADD_CONTACT_HOWTO = "To add a contact, share their card: tap the attachment icon, choose Contact, then send it here."
-_CONTEXT_HINTS = "E.g. We met at… • We work together in… • Who introduced us: …"
-_DUPLICATE_OFFER_ADD_CONTEXT = (
-    "They're already in your contacts. Send a message to add more context about {name}.\n"
-    + _CONTEXT_HINTS
-)
-_ADD_CONTEXT_BUTTON_PROMPT = (
-    "Send a message to add more context about {name}.\n" + _CONTEXT_HINTS
-)
-_ADD_CONTEXT_SUCCESS = "Added. " + _CONTACT_ADDED_EXTRA
-_ADD_MORE_OR_DONE_MSG = "Added. Add more or done?"
-_ADD_MORE_CONTEXT_AGAIN_MSG = (
-    "Send another message to add more context about {name}.\n" + _CONTEXT_HINTS
-)
-_ADD_CONTEXT_DONE_MSG = "Done. You can find them with Search."
-_ADD_CONTEXT_NOT_FOUND = "That contact couldn't be found."
-_ADD_CONTEXT_EMPTY = "Please send some text to add."
-
-# Chat id -> True when we are waiting for the next message as search keyword
-_search_pending_by_chat: dict[int, bool] = {}
-# Chat id -> (person_id, name) when we are waiting for text to append to an existing contact
-_pending_add_context_by_chat: dict[int, tuple[str, str]] = {}
+# --- Telegram webhook (flow-driven) ---
 
 
 def _pending_add_context_file() -> Path:
@@ -408,7 +351,7 @@ def _welcome_inline_keyboard(has_contacts: bool = True):
 
 
 async def _send_contact_results_impl(bot, chat_id: int, summaries: list) -> None:
-    """Send each contact as card + context with 'Add relationship context' inline button. Used by webhook and callback."""
+    """Send each contact as card + context with 'Add relationship context' inline button."""
     add_ctx_kb = _add_context_inline_keyboard
     for s in summaries:
         if s.phone_number and s.phone_number.strip():
@@ -437,10 +380,140 @@ async def _send_contact_results_impl(bot, chat_id: int, summaries: list) -> None
             )
 
 
+def _get_flow_state(user_id: str, chat_id: int, initial_state: str = "idle") -> dict:
+    """Get flow state for (user_id, chat_id). Merge file-backed add_context into slots."""
+    key = (user_id, chat_id)
+    state = _flow_state.get(key)
+    if not state:
+        state = {
+            "current_node_id": initial_state,
+            "slots": {},
+        }
+    slots = dict(state.get("slots") or {})
+    # Merge file-backed add_context so it survives restarts (read-only)
+    from_file = _load_pending_add_context(user_id).get(chat_id)
+    if from_file:
+        person_id, name = from_file
+        slots["person_id"] = person_id
+        slots["contact_name"] = name
+        state = {**state, "slots": slots}
+    return state
+
+
+def _set_flow_state(user_id: str, chat_id: int, state: dict) -> None:
+    """Save flow state. Persist person_id/contact_name to file when set."""
+    key = (user_id, chat_id)
+    _flow_state[key] = state
+    slots = state.get("slots") or {}
+    person_id = slots.get("person_id")
+    contact_name = slots.get("contact_name")
+    if person_id and contact_name:
+        _save_pending_add_context(user_id, chat_id, person_id, contact_name)
+    else:
+        _clear_pending_add_context_from_file(user_id, chat_id)
+
+
+def _update_to_event(update, slots: dict) -> dict | None:
+    """Build flow event from Telegram Update. Returns None if no relevant event."""
+    from telegram import Update
+
+    if not update or not isinstance(update, Update):
+        return None
+    # Callback
+    if update.callback_query:
+        cq = update.callback_query
+        data = (cq.data or "").strip()
+        payload = {"data": data}
+        if data == "cmd:list":
+            subtype = "cmd_list"
+        elif data == "cmd:search":
+            subtype = "cmd_search"
+        elif data == "cmd:add":
+            subtype = "cmd_add"
+        elif data.startswith("addmore:"):
+            subtype = "addmore"
+            payload["person_id"] = data[8:].strip()
+        elif data == "addctx_done":
+            subtype = "addctx_done"
+        else:
+            subtype = "person_id"
+            payload["person_id"] = data
+        return {"type": "callback", "subtype": subtype, "payload": payload}
+    # Contact shared
+    if update.message and update.message.contact:
+        c = update.message.contact
+        name = (getattr(c, "first_name", None) or "").strip()
+        if getattr(c, "last_name", None):
+            name = f"{name} {c.last_name}".strip()
+        name = name or "Unknown"
+        return {
+            "type": "contact_shared",
+            "subtype": None,
+            "payload": {
+                "name": name,
+                "phone_number": getattr(c, "phone_number", None),
+                "telegram_user_id": getattr(c, "user_id", None),
+            },
+        }
+    # Text
+    if update.message and update.message.text:
+        text = (update.message.text or "").strip()
+        t = text.lower()
+        payload = {"text": text}
+        if text == "/start":
+            subtype = "command_start"
+        elif text == "/help":
+            subtype = "command_help"
+        elif text in ("/list", "List contacts") or t == "list":
+            subtype = "command_list"
+        elif text == "Search" or t == "search":
+            subtype = "command_search"
+        elif text == "Add contact" or t == "add contact":
+            subtype = "command_add_contact"
+        elif text.startswith("/search "):
+            if not text[8:].strip():
+                subtype = "unsupported"
+            else:
+                subtype = "search_keyword"
+        elif slots.get("search_pending"):
+            subtype = "search_keyword"
+        elif slots.get("person_id") or slots.get("contact_name"):
+            subtype = "add_context_text"
+        elif slots.get("pending_id"):
+            subtype = "pending_context_text"
+        else:
+            subtype = "unsupported"
+        return {"type": "text", "subtype": subtype, "payload": payload}
+    # Other message (photo, voice, etc.)
+    if update.message:
+        return {"type": "text", "subtype": "unsupported", "payload": {"text": ""}}
+    return None
+
+
+def _keyboard_by_name(name: str | None, slots: dict) -> object:
+    """Return Telegram reply_markup for the given keyboard name. Requires person_id in slots for add_context/add_more_or_done."""
+    if not name:
+        return None
+    person_id = (slots or {}).get("person_id") or ""
+    if name == "main":
+        return _main_keyboard()
+    if name == "welcome":
+        return _welcome_inline_keyboard(has_contacts=True)
+    if name == "welcome_no_contacts":
+        return _welcome_inline_keyboard(has_contacts=False)
+    if name == "add_context" and person_id:
+        return _add_context_inline_keyboard(person_id)
+    if name == "add_more_or_done" and person_id:
+        return _add_more_or_done_keyboard(person_id)
+    return None
+
+
 @app.post("/webhook/telegram")
 async def webhook_telegram(request: Request):
     """Handle Telegram updates. Set Telegram webhook URL to https://<your-domain>/webhook/telegram"""
     from telegram import Bot, Update
+
+    from api.flow_adapter import SendContactList, SendMessage, run_xstate_flow
 
     logger.info("Telegram webhook received")
     try:
@@ -472,218 +545,43 @@ async def webhook_telegram(request: Request):
     bot = Bot(token=token)
     service = get_service(user_id, app)
 
-    # Inline button callbacks: Add more context / I'm done (after adding context), or Add context (from list/search), or welcome commands
+    state = _get_flow_state(user_id, chat_id)
+    event = _update_to_event(update, state.get("slots") or {})
+    if event is None:
+        return {}
+
+    actions, new_state_value, new_slots = run_xstate_flow(
+        state.get("current_node_id"),
+        event,
+        state.get("slots") or {},
+        service,
+    )
+    new_state = {"current_node_id": new_state_value, "slots": new_slots}
+
+    # Answer callback so Telegram stops showing loading state
     if update.callback_query:
-        cq = update.callback_query
-        cq_chat_id = cq.message.chat.id if cq.message and cq.message.chat else chat_id
-        cq_chat_id = int(cq_chat_id) if cq_chat_id is not None else None
-        data = (cq.data or "").strip()
+        await bot.answer_callback_query(callback_query_id=update.callback_query.id)
 
-        if data == "cmd:list" and cq_chat_id is not None:
-            await bot.answer_callback_query(callback_query_id=cq.id)
-            summaries = service.list_contacts()
-            if not summaries:
-                await bot.send_message(chat_id=cq_chat_id, text=_EMPTY_LIST_MSG)
-            else:
-                await _send_contact_results_impl(bot, cq_chat_id, summaries)
-            return {}
-        if data == "cmd:search" and cq_chat_id is not None:
-            await bot.answer_callback_query(callback_query_id=cq.id)
-            _search_pending_by_chat[cq_chat_id] = True
-            await bot.send_message(chat_id=cq_chat_id, text=_SEARCH_PROMPT)
-            return {}
-        if data == "cmd:add" and cq_chat_id is not None:
-            await bot.answer_callback_query(callback_query_id=cq.id)
+    reply_chat_id = chat_id
+    if update.callback_query and update.callback_query.message and update.callback_query.message.chat:
+        reply_chat_id = int(update.callback_query.message.chat.id)
+
+    for action in actions:
+        if isinstance(action, SendMessage):
+            reply_markup = _keyboard_by_name(
+                action.keyboard, new_state.get("slots") or {}
+            )
             await bot.send_message(
-                chat_id=cq_chat_id,
-                text=_ADD_CONTACT_HOWTO,
-                reply_markup=_main_keyboard(),
+                chat_id=reply_chat_id,
+                text=action.text,
+                reply_markup=reply_markup,
             )
-            return {}
+        elif isinstance(action, SendContactList):
+            await _send_contact_results_impl(bot, reply_chat_id, action.summaries)
 
-        if data.startswith("addmore:") and cq_chat_id is not None:
-            person_id = data[8:].strip()
-            contact = service.get_contact(person_id) if person_id else None
-            if contact:
-                _pending_add_context_by_chat[cq_chat_id] = (person_id, contact.name)
-                _save_pending_add_context(user_id, cq_chat_id, person_id, contact.name)
-                await bot.answer_callback_query(callback_query_id=cq.id)
-                await bot.send_message(
-                    chat_id=cq_chat_id,
-                    text=_ADD_MORE_CONTEXT_AGAIN_MSG.format(name=contact.name),
-                )
-            else:
-                await bot.answer_callback_query(
-                    callback_query_id=cq.id,
-                    text=_ADD_CONTEXT_NOT_FOUND,
-                )
-            return {}
-        if data == "addctx_done":
-            await bot.answer_callback_query(callback_query_id=cq.id)
-            await bot.send_message(chat_id=cq_chat_id, text=_ADD_CONTEXT_DONE_MSG)
-            return {}
+    # When back at idle, clear slots so we don't carry stale pending state (after sending so keyboards can use slots)
+    if new_state_value == "idle":
+        new_state["slots"] = {}
 
-        person_id = data
-        contact = service.get_contact(person_id) if person_id else None
-        if person_id and cq_chat_id is not None:
-            if contact:
-                _pending_add_context_by_chat[cq_chat_id] = (person_id, contact.name)
-                _save_pending_add_context(user_id, cq_chat_id, person_id, contact.name)
-                await bot.answer_callback_query(callback_query_id=cq.id)
-                await bot.send_message(
-                    chat_id=cq_chat_id,
-                    text=_ADD_CONTEXT_BUTTON_PROMPT.format(name=contact.name),
-                )
-            else:
-                await bot.answer_callback_query(
-                    callback_query_id=cq.id,
-                    text=_ADD_CONTEXT_NOT_FOUND,
-                )
-        else:
-            await bot.answer_callback_query(callback_query_id=cq.id)
-        return {}
-
-    async def send(text: str, reply_markup=None) -> None:
-        # #region agent log
-        _debug_log({"id": "send_call", "timestamp": __import__("time").time() * 1000, "location": "main.py:send", "message": "send() called", "data": {"reply_markup_is_none": reply_markup is None, "reply_markup_type": type(reply_markup).__name__ if reply_markup else None}, "hypothesisId": "H3"})
-        # #endregion
-        try:
-            await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
-        except Exception as e:
-            # #region agent log
-            _debug_log({"id": "send_error", "timestamp": __import__("time").time() * 1000, "location": "main.py:send", "message": "send_message raised", "data": {"error_type": type(e).__name__, "error_str": str(e)[:200]}, "hypothesisId": "H3"})
-            # #endregion
-            raise
-
-    async def send_contact_results(summaries: list[ContactSummary]) -> None:
-        """Send each contact as a Telegram contact card (if phone) + context, or as text. Each with 'Add relationship context' button."""
-        await _send_contact_results_impl(bot, chat_id, summaries)
-
-    # Contact shared (Contact object from python-telegram-bot)
-    if update.message and update.message.contact:
-        _search_pending_by_chat.pop(chat_id, None)
-        _pending_add_context_by_chat.pop(chat_id, None)
-        _clear_pending_add_context_from_file(user_id, chat_id)
-        c = update.message.contact
-        name = (getattr(c, "first_name", None) or "").strip()
-        if getattr(c, "last_name", None):
-            name = f"{name} {c.last_name}".strip()
-        name = name or "Unknown"
-        card = ContactCardData(
-            name=name,
-            phone_number=getattr(c, "phone_number", None),
-            telegram_user_id=getattr(c, "user_id", None),
-        )
-        result = service.receive_contact_card(card)
-        if isinstance(result, PendingContact):
-            _pending_by_chat[chat_id] = result.pending_id
-            await send(
-                f"Got it. Send me a short description of why {result.name} matters to you. "
-                f"{_PENDING_CONTEXT_EXAMPLE}"
-            )
-        elif isinstance(result, Duplicate):
-            _pending_add_context_by_chat[chat_id] = (result.person_id, result.name)
-            _save_pending_add_context(user_id, chat_id, result.person_id, result.name)
-            await send(_DUPLICATE_OFFER_ADD_CONTEXT.format(name=result.name))
-        elif isinstance(result, Invalid):
-            await send(result.reason)
-        return {}
-
-    # Text message
-    if update.message and update.message.text:
-        text = (update.message.text or "").strip()
-        t = text.lower()
-        # #region agent log
-        _debug_log({"id": "text_msg", "timestamp": __import__("time").time() * 1000, "location": "main.py:text", "message": "text message", "data": {"raw": (update.message.text or "")[:80], "stripped": text[:80], "is_start": text == "/start", "is_help": text == "/help"}, "hypothesisId": "H1"})
-        # #endregion
-        # Clear search-pending and add-context pending when user runs another command or list/search
-        if text in (
-            "/start",
-            "/help",
-            "/list",
-            "List contacts",
-            "Add contact",
-        ) or t in ("list", "search", "add contact"):
-            _search_pending_by_chat.pop(chat_id, None)
-            _pending_add_context_by_chat.pop(chat_id, None)
-            _clear_pending_add_context_from_file(user_id, chat_id)
-
-        if text == "/start":
-            await send(_WELCOME_MSG)
-            return {}
-        if text == "/help":
-            await send(_WELCOME_MSG)
-            return {}
-        if text == "/list" or text == "List contacts" or t == "list":
-            summaries = service.list_contacts()
-            if not summaries:
-                await send(_EMPTY_LIST_MSG)
-            else:
-                await send_contact_results(summaries)
-            return {}
-        if text == "Search" or t == "search":
-            _search_pending_by_chat[chat_id] = True
-            await send(_SEARCH_PROMPT)
-            return {}
-        if text == "Add contact" or t == "add contact":
-            await send(_ADD_CONTACT_HOWTO, reply_markup=_main_keyboard())
-            return {}
-        if text.startswith("/search "):
-            keyword = text[8:].strip()
-            if not keyword:
-                await send(_SEARCH_USAGE)
-            else:
-                summaries = service.search_contacts(keyword)
-                if not summaries:
-                    await send("No contacts match that keyword.")
-                else:
-                    await send_contact_results(summaries)
-            return {}
-        if _search_pending_by_chat.get(chat_id):
-            _search_pending_by_chat.pop(chat_id, None)
-            keyword = text
-            summaries = service.search_contacts(keyword)
-            if not summaries:
-                await send("No contacts match that keyword.")
-            else:
-                await send_contact_results(summaries)
-            return {}
-        # Add more context to an existing contact (from re-share or "Add context" button)
-        add_ctx = _pending_add_context_by_chat.pop(chat_id, None)
-        if add_ctx is None:
-            add_ctx = _pop_pending_add_context_from_file(user_id, chat_id)
-        if add_ctx:
-            person_id, name = add_ctx
-            result = service.add_context(person_id, text)
-            if isinstance(result, AddContextSuccess):
-                await send(
-                    _ADD_MORE_OR_DONE_MSG,
-                    reply_markup=_add_more_or_done_keyboard(person_id),
-                )
-            elif isinstance(result, AddContextNotFound):
-                await send(_ADD_CONTEXT_NOT_FOUND)
-            else:
-                await send(_ADD_CONTEXT_EMPTY)
-            return {}
-        # Treat as context for pending (new contact)
-        pending_id = _pending_by_chat.get(chat_id)
-        if not pending_id:
-            await send(
-                "Send a contact card first, then I'll ask for a description.",
-                reply_markup=_main_keyboard(),
-            )
-            return {}
-        result = service.submit_context(pending_id, text)
-        _pending_by_chat.pop(chat_id, None)
-        if isinstance(result, ContactCreated):
-            await send(f"Contact {result.name} added. {_CONTACT_ADDED_EXTRA}")
-        else:
-            await send(f"That contact wasn't pending anymore. {_PENDING_LOST_EXTRA}")
-        return {}
-
-    # Message present but not contact and not text (e.g. photo, voice, sticker)
-    if update.message:
-        await send(_UNSUPPORTED_INPUT_MSG, reply_markup=_main_keyboard())
-        return {}
-
+    _set_flow_state(user_id, chat_id, new_state)
     return {}

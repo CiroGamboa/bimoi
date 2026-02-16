@@ -15,6 +15,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 | **Core business logic (contact flow, list, search)** | [src/bimoi/application/](src/bimoi/application/) — ContactService, ContactRepository, ContactCardData |
 | **Neo4j persistence** | [src/bimoi/infrastructure/persistence/](src/bimoi/infrastructure/persistence/) — Neo4jContactRepository |
 | **Production Telegram bot** | [src/bot/](src/bot/) — run with `python -m bot` (Neo4j + ContactService) |
+| **Conversation flow (XState)** | [flows/telegram_machine.json](flows/telegram_machine.json) — standard state machine (xstate-python); [src/api/flow_adapter.py](src/api/flow_adapter.py) — effects; messages in [flows/telegram.yaml](flows/telegram.yaml). See [docs/CONVERSATION_ARCHITECTURE.md](docs/CONVERSATION_ARCHITECTURE.md) for fixed workflows vs semantic layer. |
 | **Human-facing overview and POC instructions** | [README.md](README.md) |
 | **Telegram POC (connect + read contact card)** | [poc/](poc/) — [poc/README.md](poc/README.md) for setup and run |
 
@@ -26,7 +27,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 - **POC token:** Set `TELEGRAM_BOT_TOKEN` (e.g. in `poc/.env`; see `poc/.env.example`). Get token from @BotFather.
 - **Run POC:** `python poc/bot.py`
 - **Production bot:** Start Neo4j with `docker compose up -d`, set `.env` (see [.env.example](.env.example)), then `pip install -e ".[bot]"` and `python -m bot`.
-- **Tests:** `pip install -e ".[dev,api]"` then `pytest tests/ -v`. Package uses src layout; tests run against the installed package. API tests need the `api` extra (FastAPI). CI runs tests on every push.
+- **Tests:** `pip install -e ".[dev,api]"` then `pytest tests/ -v`. Package uses src layout; tests run against the installed package. API tests need the `api` extra (FastAPI, xstate-python). If your index doesn't have Js2Py 0.71 (e.g. private Azure index), use `pip install --extra-index-url https://pypi.org/simple -e ".[dev,api]"`. CI runs tests on every push.
 - **Code quality (pre-commit):** `pre-commit install`. Hooks run on commit (isort, ruff, trailing whitespace, etc.). Run manually: `pre-commit run --all-files`.
 
 ## Tasks and status (Notion)

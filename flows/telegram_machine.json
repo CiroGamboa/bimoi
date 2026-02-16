@@ -1,0 +1,110 @@
+{
+  "id": "bimoi_telegram",
+  "initial": "idle",
+  "states": {
+    "idle": {
+      "on": {
+        "CONTACT_SHARED": "receive_contact",
+        "TEXT_COMMAND_START": "welcome",
+        "TEXT_COMMAND_HELP": "welcome",
+        "TEXT_COMMAND_LIST": "do_list",
+        "TEXT_COMMAND_SEARCH": "prompt_search",
+        "TEXT_COMMAND_ADD_CONTACT": "prompt_add_contact",
+        "TEXT_SEARCH_KEYWORD": "do_search",
+        "TEXT_ADD_CONTEXT": "do_add_context",
+        "TEXT_PENDING_CONTEXT": "do_submit_context",
+        "TEXT_UNSUPPORTED": "unsupported_msg",
+        "CALLBACK_LIST": "do_list",
+        "CALLBACK_SEARCH": "prompt_search",
+        "CALLBACK_ADD": "prompt_add_contact",
+        "CALLBACK_ADDMORE": "prompt_add_more_context",
+        "CALLBACK_ADDCTX_DONE": "add_context_done",
+        "CALLBACK_PERSON_ID": "prompt_add_context_for_contact"
+      }
+    },
+    "welcome": { "on": { "DONE": "idle" } },
+    "unsupported_msg": { "on": { "DONE": "idle" } },
+    "receive_contact": {
+      "on": {
+        "PENDING": "awaiting_context",
+        "DUPLICATE": "awaiting_add_context",
+        "INVALID": "idle"
+      }
+    },
+    "awaiting_context": {
+      "on": {
+        "TEXT_PENDING_CONTEXT": "do_submit_context",
+        "TEXT_COMMAND_START": "welcome",
+        "TEXT_COMMAND_HELP": "welcome",
+        "TEXT_COMMAND_LIST": "do_list",
+        "TEXT_COMMAND_SEARCH": "prompt_search",
+        "TEXT_COMMAND_ADD_CONTACT": "prompt_add_contact",
+        "TEXT_UNSUPPORTED": "send_contact_first"
+      }
+    },
+    "do_submit_context": {
+      "on": {
+        "CREATED": "contact_created",
+        "PENDING_NOT_FOUND": "idle"
+      }
+    },
+    "contact_created": { "on": { "DONE": "idle" } },
+    "do_list": {
+      "on": {
+        "EMPTY": "idle",
+        "HAS_RESULTS": "idle"
+      }
+    },
+    "prompt_search": { "on": { "DONE": "awaiting_search" } },
+    "awaiting_search": {
+      "on": {
+        "TEXT_SEARCH_KEYWORD": "do_search",
+        "TEXT_COMMAND_START": "welcome",
+        "TEXT_COMMAND_HELP": "welcome",
+        "TEXT_COMMAND_LIST": "do_list",
+        "TEXT_COMMAND_SEARCH": "prompt_search",
+        "TEXT_COMMAND_ADD_CONTACT": "prompt_add_contact",
+        "TEXT_UNSUPPORTED": "idle"
+      }
+    },
+    "do_search": {
+      "on": {
+        "EMPTY": "idle",
+        "HAS_RESULTS": "idle"
+      }
+    },
+    "prompt_add_contact": { "on": { "DONE": "idle" } },
+    "prompt_add_context_for_contact": {
+      "on": {
+        "FOUND": "awaiting_add_context",
+        "NOT_FOUND": "idle"
+      }
+    },
+    "prompt_add_more_context": {
+      "on": {
+        "FOUND": "awaiting_add_context",
+        "NOT_FOUND": "idle"
+      }
+    },
+    "awaiting_add_context": {
+      "on": {
+        "TEXT_ADD_CONTEXT": "do_add_context",
+        "TEXT_COMMAND_START": "welcome",
+        "TEXT_COMMAND_HELP": "welcome",
+        "TEXT_COMMAND_LIST": "do_list",
+        "TEXT_COMMAND_SEARCH": "prompt_search",
+        "TEXT_COMMAND_ADD_CONTACT": "prompt_add_contact",
+        "TEXT_UNSUPPORTED": "idle"
+      }
+    },
+    "do_add_context": {
+      "on": {
+        "SUCCESS": "idle",
+        "NOT_FOUND": "idle",
+        "INVALID": "idle"
+      }
+    },
+    "add_context_done": { "on": { "DONE": "idle" } },
+    "send_contact_first": { "on": { "DONE": "idle" } }
+  }
+}
