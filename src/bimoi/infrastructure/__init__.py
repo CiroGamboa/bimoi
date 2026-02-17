@@ -3,7 +3,9 @@
 from bimoi.infrastructure.identity import (
     CHANNEL_TELEGRAM,
     ensure_channel_link_constraint,
+    get_account_profile,
     get_or_create_user_id,
+    update_account_profile,
 )
 from bimoi.infrastructure.memory_repository import InMemoryContactRepository
 from bimoi.infrastructure.persistence.neo4j_repository import Neo4jContactRepository
@@ -13,5 +15,7 @@ __all__ = [
     "InMemoryContactRepository",
     "Neo4jContactRepository",
     "ensure_channel_link_constraint",
+    "get_account_profile",
     "get_or_create_user_id",
+    "update_account_profile",
 ]

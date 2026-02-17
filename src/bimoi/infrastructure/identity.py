@@ -32,6 +32,25 @@ CREATE (c)-[:BELONGS_TO]->(a)
 RETURN a.id AS user_id
 """
 
+_SET_ACCOUNT_NAME_QUERY = """
+MATCH (a:Account { id: $user_id })
+SET a.name = $name
+RETURN a.id AS user_id
+"""
+
+_UPDATE_PROFILE_QUERY = """
+MATCH (a:Account { id: $user_id })
+WITH a
+SET a.name = CASE WHEN $name IS NOT NULL THEN $name ELSE a.name END,
+    a.bio = CASE WHEN $bio IS NOT NULL THEN $bio ELSE a.bio END
+RETURN a.id AS user_id
+"""
+
+_GET_PROFILE_QUERY = """
+MATCH (a:Account { id: $user_id })
+RETURN a.name AS name, a.bio AS bio
+"""
+
 
 def ensure_channel_link_constraint(driver) -> None:
     """Create unique constraint on ChannelLink(channel, external_id) if missing."""
@@ -39,11 +58,20 @@ def ensure_channel_link_constraint(driver) -> None:
         session.run(_CONSTRAINT_QUERY)
 
 
-def get_or_create_user_id(driver, channel: str, external_id: str) -> str:
+def get_or_create_user_id(
+    driver,
+    channel: str,
+    external_id: str,
+    *,
+    initial_name: str | None = None,
+) -> tuple[str, bool]:
     """Resolve (channel, external_id) to a stable user_id (Account id).
 
+    Returns (user_id, is_new_account). is_new_account is True when the Account
+    was created in this call; False when an existing Account was found.
     If a link exists, returns the linked Account id. Otherwise creates an
     Account (UUID), a ChannelLink, and BELONGS_TO, then returns the new id.
+    When creating, optional initial_name is stored on the Account.
     Call ensure_channel_link_constraint at startup so MERGE is unique.
     """
     external_id = (external_id or "").strip()
@@ -55,6 +83,7 @@ def get_or_create_user_id(driver, channel: str, external_id: str) -> str:
 
     user_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
+    name = (initial_name or "").strip() or None
 
     with driver.session() as session:
         result = session.run(
@@ -65,7 +94,7 @@ def get_or_create_user_id(driver, channel: str, external_id: str) -> str:
         )
         record = result.single()
         if record and record["user_id"] is not None:
-            return record["user_id"]
+            return (record["user_id"], False)
         result = session.run(
             _CREATE_ACCOUNT_QUERY,
             channel=channel,
@@ -74,6 +103,40 @@ def get_or_create_user_id(driver, channel: str, external_id: str) -> str:
             created_at=created_at,
         )
         record = result.single()
+        if record and name:
+            session.run(_SET_ACCOUNT_NAME_QUERY, user_id=record["user_id"], name=name)
     if not record:
         raise RuntimeError("get_or_create_user_id: expected one result")
-    return record["user_id"]
+    return (record["user_id"], True)
+
+
+def update_account_profile(
+    driver,
+    user_id: str,
+    *,
+    name: str | None = None,
+    bio: str | None = None,
+) -> None:
+    """Update Account profile fields. Only provided (non-None) fields are set."""
+    if name is None and bio is None:
+        return
+    with driver.session() as session:
+        session.run(
+            _UPDATE_PROFILE_QUERY,
+            user_id=user_id,
+            name=name,
+            bio=bio,
+        )
+
+
+def get_account_profile(driver, user_id: str) -> dict | None:
+    """Return Account profile as { name: str | None, bio: str | None }, or None if not found."""
+    with driver.session() as session:
+        result = session.run(_GET_PROFILE_QUERY, user_id=user_id)
+        record = result.single()
+    if not record:
+        return None
+    return {
+        "name": record["name"],
+        "bio": record["bio"],
+    }

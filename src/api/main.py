@@ -508,6 +508,27 @@ def _keyboard_by_name(name: str | None, slots: dict) -> object:
     return None
 
 
+_ONBOARDING_MSG = (
+    "Hi! Bimoi helps you remember who people are and why they matter—so that lives with you, "
+    "not just in your head or in old chats. Share a contact card and add a short note; "
+    "later you can search and list everyone. Let's get started."
+)
+
+
+def _telegram_display_name(effective_user) -> str | None:
+    """Build a display name from Telegram effective_user (first_name, last_name, username)."""
+    if not effective_user:
+        return None
+    first = (getattr(effective_user, "first_name", None) or "").strip()
+    last = (getattr(effective_user, "last_name", None) or "").strip()
+    if first or last:
+        return f"{first} {last}".strip()
+    username = getattr(effective_user, "username", None)
+    if username and str(username).strip():
+        return str(username).strip()
+    return None
+
+
 @app.post("/webhook/telegram")
 async def webhook_telegram(request: Request):
     """Handle Telegram updates. Set Telegram webhook URL to https://<your-domain>/webhook/telegram"""
@@ -530,8 +551,12 @@ async def webhook_telegram(request: Request):
         logger.warning("Telegram webhook: no update or effective_user")
         return {}
     driver = _get_cached_driver(app)
-    user_id = get_or_create_user_id(
-        driver, CHANNEL_TELEGRAM, str(update.effective_user.id)
+    initial_name = _telegram_display_name(update.effective_user)
+    user_id, is_new_user = get_or_create_user_id(
+        driver,
+        CHANNEL_TELEGRAM,
+        str(update.effective_user.id),
+        initial_name=initial_name,
     )
     _raw_chat_id = update.effective_chat.id if update.effective_chat else None
     chat_id = int(_raw_chat_id) if _raw_chat_id is not None else None
@@ -544,6 +569,9 @@ async def webhook_telegram(request: Request):
         return {}
     bot = Bot(token=token)
     service = get_service(user_id, app)
+
+    if is_new_user:
+        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_MSG)
 
     state = _get_flow_state(user_id, chat_id)
     event = _update_to_event(update, state.get("slots") or {})

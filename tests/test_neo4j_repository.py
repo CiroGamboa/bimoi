@@ -1,4 +1,5 @@
-"""Integration tests for Neo4jContactRepository. Require Docker (testcontainers)."""
+"""Integration tests for Neo4jContactRepository. Require Docker
+(testcontainers)."""
 
 import pytest
 
@@ -57,8 +58,10 @@ def test_find_duplicate_by_phone(clean_neo4j):
     )
     repo.add(person)
 
-    assert repo.find_duplicate(ContactCardData(name="Other", phone_number="+222")) is not None
-    assert repo.find_duplicate(ContactCardData(name="X", phone_number="+999")) is None
+    card_dup = ContactCardData(name="Other", phone_number="+222")
+    assert repo.find_duplicate(card_dup) is not None
+    card_no_dup = ContactCardData(name="X", phone_number="+999")
+    assert repo.find_duplicate(card_no_dup) is None
 
 
 def test_find_duplicate_by_external_id(clean_neo4j):
@@ -70,8 +73,10 @@ def test_find_duplicate_by_external_id(clean_neo4j):
     )
     repo.add(person)
 
-    assert repo.find_duplicate(ContactCardData(name="X", telegram_user_id=123)) is not None
-    assert repo.find_duplicate(ContactCardData(name="X", telegram_user_id=456)) is None
+    card_dup = ContactCardData(name="X", telegram_user_id=123)
+    assert repo.find_duplicate(card_dup) is not None
+    card_no_dup = ContactCardData(name="X", telegram_user_id=456)
+    assert repo.find_duplicate(card_no_dup) is None
 
 
 def test_list_all_ordering(clean_neo4j):
@@ -107,8 +112,9 @@ def test_multi_user_isolation(clean_neo4j):
     assert len(repo_a.list_all()) == 1
     assert len(repo_b.list_all()) == 0
 
-    assert repo_a.find_duplicate(ContactCardData(name="X", phone_number="+555")) is not None
-    assert repo_b.find_duplicate(ContactCardData(name="X", phone_number="+555")) is None
+    card = ContactCardData(name="X", phone_number="+555")
+    assert repo_a.find_duplicate(card) is not None
+    assert repo_b.find_duplicate(card) is None
 
     assert repo_b.get_by_id(person.id) is None
     assert repo_a.get_by_id(person.id) is not None
@@ -132,3 +138,29 @@ def test_append_context(clean_neo4j):
     assert "\n\n— " in found.relationship_context.description
 
     assert repo.append_context("nonexistent-id", "Text") is False
+
+
+def test_context_stored_on_relationship(clean_neo4j):
+    """Verify that context is stored on KNOWS relationship, not as separate
+    nodes."""
+    repo = Neo4jContactRepository(clean_neo4j, user_id="default")
+    person = Person(
+        name="Test",
+        relationship_context=RelationshipContext(description="Test context"),
+    )
+    repo.add(person)
+
+    # Verify structure: context is on KNOWS edge, not separate node
+    with clean_neo4j.session() as session:
+        result = session.run(
+            "MATCH (owner)-[k:KNOWS]->(p:Person {id: $id}) "
+            "RETURN k.context_description AS ctx",
+            id=person.id,
+        )
+        record = result.single()
+        assert record is not None
+        assert record["ctx"] == "Test context"
+
+        # Verify no RelationshipContext nodes exist
+        result = session.run("MATCH (c:RelationshipContext) RETURN count(c) AS cnt")
+        assert result.single()["cnt"] == 0

@@ -34,6 +34,30 @@ Commands in Telegram: share a contact to add (then send context text), `/list`, 
 
 ---
 
+## Architecture Overview
+
+**Technology Stack**:
+- Backend: FastAPI (REST API + Telegram webhook)
+- Database: Neo4j (graph for contacts and identity)
+- Conversation Flow: XState state machine (flow-as-data, see [docs/CONVERSATION_ARCHITECTURE.md](docs/CONVERSATION_ARCHITECTURE.md))
+- Deployment: Docker Compose (Neo4j + backend)
+
+**Data Model**:
+Graph structure optimized for "who you know and why":
+- Person nodes (owner with registered: true, contacts with registered: false)
+- KNOWS relationships with context properties (description, timestamps)
+- Account/ChannelLink nodes for multi-channel identity (Telegram, future WhatsApp/web)
+
+**Key Design Decisions**:
+1. Context lives on relationships, not separate nodes (describes the connection, not the person)
+2. Single-user MVP: one Account per user, contacts scoped by KNOWS edge from owner
+3. Flow-as-data: conversation logic in JSON/YAML (flows/telegram_machine.json), not hardcoded
+4. Clean architecture: domain entities agnostic to storage, repository pattern for persistence
+
+See [AGENTS.md](AGENTS.md) for AI agent context and [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for full product spec.
+
+---
+
 ## Development with ngrok
 
 Telegram cannot reach `localhost`, so to test the bot locally you expose your backend with a tunnel and set the webhook to that URL.
