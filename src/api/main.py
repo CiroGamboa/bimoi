@@ -38,6 +38,7 @@ from bimoi.infrastructure import (
     Neo4jContactRepository,
     ensure_channel_link_constraint,
     get_or_create_user_id,
+    update_account_profile,
 )
 from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
 
@@ -47,7 +48,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Optional: multi-user placeholder (REST)
+# Multi-user support: REST endpoints accept X-User-Id header (defaults to "default" if not provided)
 USER_ID_HEADER = "X-User-Id"
 DEFAULT_USER_ID = "default"
 
@@ -514,6 +515,24 @@ _ONBOARDING_MSG = (
     "later you can search and list everyone. Let's get started."
 )
 
+_ONBOARDING_ASK_NAME_MSG = "What should I call you? (Reply with your name.)"
+
+_ONBOARDING_ASK_BIO_MSG = "Add a short bio? (One line about yourself.)"
+
+# Reuse same copy as flow add_contact_howto
+_ADD_CONTACT_HOWTO = (
+    "To add a contact, share their card: tap the attachment icon, choose Contact, then send it here."
+)
+
+# #region agent log
+def _debug_log(message: str, data: dict, hypothesis_id: str = "") -> None:
+    import json
+    p = Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug.log"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": __import__("time").time()}) + "\n")
+# #endregion
+
 
 def _telegram_display_name(effective_user) -> str | None:
     """Build a display name from Telegram effective_user (first_name, last_name, username)."""
@@ -570,18 +589,82 @@ async def webhook_telegram(request: Request):
     bot = Bot(token=token)
     service = get_service(user_id, app)
 
+    state = _get_flow_state(user_id, chat_id)
+    event = _update_to_event(update, state.get("slots") or {})
+    # #region agent log
+    _debug_log("webhook state", {"is_new_user": is_new_user, "event_type": event.get("type") if event else None, "event_subtype": event.get("subtype") if event else None, "onboarding_awaiting": (state.get("slots") or {}).get("onboarding_awaiting_info")}, "H1")
+    # #endregion
+
+    slots = state.get("slots") or {}
+
+    # #region agent log
+    _debug_log(
+        "onboarding check",
+        {
+            "onboarding_awaiting_name": slots.get("onboarding_awaiting_name"),
+            "onboarding_awaiting_bio": slots.get("onboarding_awaiting_bio"),
+            "event_type": event.get("type") if event else None,
+            "event_subtype": event.get("subtype") if event else None,
+        },
+        "H1",
+    )
+    # #endregion
+
+    # New user hitting /start: onboarding + ask for name only (no buttons until after name + bio).
+    if is_new_user and event and event.get("subtype") == "command_start":
+        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_MSG)
+        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_NAME_MSG)
+        new_state = {
+            "current_node_id": state.get("current_node_id", "idle"),
+            "slots": {**slots, "onboarding_awaiting_name": True},
+        }
+        _set_flow_state(user_id, chat_id, new_state)
+        return {}
+
+    # Onboarding: user replying with name → save name, ask for bio (no button).
+    if slots.get("onboarding_awaiting_name") and event and event.get("type") == "text":
+        text = (event.get("payload") or {}).get("text") or ""
+        text = text.strip()
+        if event.get("subtype") == "command_start" or not text:
+            await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_NAME_MSG)
+            return {}
+        update_account_profile(driver, user_id, name=text)
+        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_BIO_MSG)
+        new_slots = {k: v for k, v in slots.items() if k != "onboarding_awaiting_name"}
+        new_slots["onboarding_awaiting_bio"] = True
+        _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
+        return {}
+
+    # Onboarding: user replying with bio (mandatory) → save, then show how to add contact + Add contact button.
+    if slots.get("onboarding_awaiting_bio") and event and event.get("type") == "text":
+        text = (event.get("payload") or {}).get("text") or ""
+        text = text.strip()
+        if event.get("subtype") == "command_start" or not text:
+            await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_BIO_MSG)
+            return {}
+        # #region agent log
+        _debug_log("bio_saved_sending_howto", {"returning": True}, "H3")
+        # #endregion
+        update_account_profile(driver, user_id, bio=text)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=_ADD_CONTACT_HOWTO,
+            reply_markup=_keyboard_by_name("welcome_no_contacts", slots),
+        )
+        new_slots = {k: v for k, v in slots.items() if k not in ("onboarding_awaiting_name", "onboarding_awaiting_bio")}
+        _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
+        return {}
+
     if is_new_user:
         await bot.send_message(chat_id=chat_id, text=_ONBOARDING_MSG)
 
-    state = _get_flow_state(user_id, chat_id)
-    event = _update_to_event(update, state.get("slots") or {})
     if event is None:
         return {}
 
     actions, new_state_value, new_slots = run_xstate_flow(
         state.get("current_node_id"),
         event,
-        state.get("slots") or {},
+        slots,
         service,
     )
     new_state = {"current_node_id": new_state_value, "slots": new_slots}
@@ -596,6 +679,9 @@ async def webhook_telegram(request: Request):
 
     for action in actions:
         if isinstance(action, SendMessage):
+            # #region agent log
+            _debug_log("sending flow message", {"keyboard": getattr(action, "keyboard", None)}, "H2")
+            # #endregion
             reply_markup = _keyboard_by_name(
                 action.keyboard, new_state.get("slots") or {}
             )

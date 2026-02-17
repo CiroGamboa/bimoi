@@ -6,7 +6,7 @@ All data is scoped by `user_id`. Identity is handled by **Account** and **Channe
 
 One canonical account per user; channels (Telegram, WhatsApp, web) resolve to that account.
 
-- **Account** — `(a:Account { id: uuid, created_at: iso, name?: string, bio?: string })`. One per user; created when they first use a channel. Optional `name` (e.g. from Telegram) and `bio` (short user-provided bio).
+- **Account** — `(a:Account { id: uuid, created_at: iso, name?: string, bio?: string })`. One per user; created when they first use a channel. Optional `name` (e.g. from Telegram) and `bio` (required at onboarding; short user-provided bio). Both are validated in the domain ([AccountProfile](src/bimoi/domain/entities.py)) with max lengths (name 500, bio 2000 chars).
 - **ChannelLink** — `(c:ChannelLink { channel: "telegram"|"whatsapp"|..., external_id: string })` with unique constraint on `(channel, external_id)`. `(c)-[:BELONGS_TO]->(a:Account)`.
 - Lookup: `(channel, external_id)` → Account id. First use creates Account and link; later uses return the same id. `get_or_create_user_id(driver, channel, external_id, initial_name=...)` returns `(user_id, is_new_account)`. See [src/bimoi/infrastructure/identity.py](../src/bimoi/infrastructure/identity.py). Constraint is created at backend/bot startup via `ensure_channel_link_constraint(driver)`.
 
@@ -42,7 +42,7 @@ Context describes the relationship between owner and contact, not the contact it
 
 ## Implementation
 
-- [src/bimoi/infrastructure/identity.py](../src/bimoi/infrastructure/identity.py) — `get_or_create_user_id(driver, channel, external_id, initial_name=...)` → `(user_id, is_new_account)`, `ensure_channel_link_constraint(driver)`, `update_account_profile(driver, user_id, name=..., bio=...)`, `get_account_profile(driver, user_id)` → `{ name, bio } | None`.
+- [src/bimoi/infrastructure/identity.py](../src/bimoi/infrastructure/identity.py) — `get_or_create_user_id(driver, channel, external_id, initial_name=...)` → `(user_id, is_new_account)`, `ensure_channel_link_constraint(driver)`, `update_account_profile(driver, user_id, name=..., bio=...)` (validates length), `get_account_profile(driver, user_id)` → `AccountProfile | None`. Domain type: [AccountProfile](src/bimoi/domain/entities.py) (name, bio; optional; max lengths).
 - [src/bimoi/infrastructure/persistence/neo4j_repository.py](../src/bimoi/infrastructure/persistence/neo4j_repository.py) — `Neo4jContactRepository(driver, user_id=...)`.
 - Integration tests: [tests/test_neo4j_repository.py](../tests/test_neo4j_repository.py) (contacts), [tests/test_identity.py](../tests/test_identity.py) (identity).
 - Optional migrations:

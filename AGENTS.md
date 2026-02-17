@@ -4,7 +4,7 @@ This file gives LLMs and other agents the main pointers to understand and work o
 
 ## What this project is
 
-**Bimoi** — Externalize real relationships: who you know and why they matter. MVP is a single-user Telegram bot: users add contacts by sharing a contact card, then add free-text context. No auth, no multi-user.
+**Bimoi** — Externalize real relationships: who you know and why they matter. MVP is a multi-user Telegram bot: each user has their own isolated contact graph. Users add contacts by sharing a contact card, then add free-text context. Authentication is handled by Telegram.
 
 ## Where to find what
 

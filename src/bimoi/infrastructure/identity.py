@@ -2,10 +2,14 @@
 
 Account and ChannelLink nodes live in Neo4j. Used by Telegram (and later
 WhatsApp, web) to get a single user_id per person across channels.
+Profile (name, bio) is stored on the Account node and exposed via AccountProfile.
 """
 
 import uuid
 from datetime import datetime, timezone
+
+from bimoi.domain import AccountProfile
+from bimoi.domain.entities import BIO_MAX_LENGTH, NAME_MAX_LENGTH
 
 # Channel name constants for extensibility (whatsapp, web, etc. later).
 CHANNEL_TELEGRAM = "telegram"
@@ -117,9 +121,19 @@ def update_account_profile(
     name: str | None = None,
     bio: str | None = None,
 ) -> None:
-    """Update Account profile fields. Only provided (non-None) fields are set."""
+    """Update Account profile fields. Only provided (non-None) fields are set.
+    Validates name/bio length using domain constants (NAME_MAX_LENGTH, BIO_MAX_LENGTH).
+    """
     if name is None and bio is None:
         return
+    if name is not None:
+        name = name.strip() or None
+        if name and len(name) > NAME_MAX_LENGTH:
+            raise ValueError(f"Account profile name must be at most {NAME_MAX_LENGTH} characters.")
+    if bio is not None:
+        bio = bio.strip() or None
+        if bio and len(bio) > BIO_MAX_LENGTH:
+            raise ValueError(f"Account profile bio must be at most {BIO_MAX_LENGTH} characters.")
     with driver.session() as session:
         session.run(
             _UPDATE_PROFILE_QUERY,
@@ -129,14 +143,14 @@ def update_account_profile(
         )
 
 
-def get_account_profile(driver, user_id: str) -> dict | None:
-    """Return Account profile as { name: str | None, bio: str | None }, or None if not found."""
+def get_account_profile(driver, user_id: str) -> AccountProfile | None:
+    """Return Account profile (name, bio) as domain type, or None if not found."""
     with driver.session() as session:
         result = session.run(_GET_PROFILE_QUERY, user_id=user_id)
         record = result.single()
     if not record:
         return None
-    return {
-        "name": record["name"],
-        "bio": record["bio"],
-    }
+    return AccountProfile(
+        name=record["name"],
+        bio=record["bio"],
+    )

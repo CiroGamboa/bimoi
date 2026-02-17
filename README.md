@@ -8,8 +8,8 @@ Bimoi helps you externalize your real relationships: who you know and why they m
 
 Detailed scope, requirements, user stories, and domain model are in **[docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)**. Summary:
 
-- **MVP:** Single-user system, Telegram bot only. Contacts are added by forwarding/sharing a Telegram contact card; the user then adds free-text context. No auth, no automation, no multi-user features.
-- **Domain:** A relationship exists when a person is known and meaningful context is explicitly captured. The system stores a personal graph of contacts plus human-authored context.
+- **MVP:** Multi-user Telegram bot. Each Telegram user gets their own isolated contact graph. Contacts are added by forwarding/sharing a Telegram contact card; the user then adds free-text context. Authentication is handled by Telegram. No complex permissions, no automation features.
+- **Domain:** A relationship exists when a person is known and meaningful context is explicitly captured. The system stores a personal graph of contacts plus human-authored context for each user.
 
 ## Running the POC
 
@@ -50,9 +50,10 @@ Graph structure optimized for "who you know and why":
 
 **Key Design Decisions**:
 1. Context lives on relationships, not separate nodes (describes the connection, not the person)
-2. Single-user MVP: one Account per user, contacts scoped by KNOWS edge from owner
+2. Multi-user with identity layer: each Telegram user mapped to a stable Account (UUID); contacts scoped by KNOWS edge from owner
 3. Flow-as-data: conversation logic in JSON/YAML (flows/telegram_machine.json), not hardcoded
 4. Clean architecture: domain entities agnostic to storage, repository pattern for persistence
+5. Channel-agnostic: identity layer supports multiple channels (Telegram today, WhatsApp/web later)
 
 See [AGENTS.md](AGENTS.md) for AI agent context and [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for full product spec.
 

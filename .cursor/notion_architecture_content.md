@@ -1,6 +1,6 @@
 ## Constraints from requirements
 
-- **Single-user, Telegram-only:** No REST API, no auth, no multi-tenant logic in MVP.
+- **Multi-user, Telegram-first:** REST API included (FastAPI), multi-user with identity layer. Each Telegram user gets isolated contact graph. Authentication handled by Telegram.
 - **Contact aggregate:** Person + RelationshipContext created atomically; no partial saves.
 - **Capabilities:** Add contact (card + context), duplicate detection, list all, search by context (case-insensitive partial). Message-type handling and flow interruption behavior live in the bot.
 - **Existing code:** domain.py (Person, RelationshipContext), bimoi/ (ContactService, ContactRepository protocol, in-memory repo, ContactCardData). POC bot in poc/ does not use the core yet.
@@ -30,23 +30,30 @@ flowchart TB
   Neo4jRepo --> Neo4j
 ```
 
-- **Telegram bot** is the only entrypoint: it turns Telegram updates into calls to **ContactService** and maps results back to replies.
-- **ContactService** (existing) stays unchanged: it depends only on the **ContactRepository** port (add, get_by_id, list_all, find_duplicate).
-- **Neo4jContactRepository** is a new adapter that implements ContactRepository and talks to Neo4j. Domain types (Person, RelationshipContext) remain the same; the adapter maps them to/from the graph.
+- **FastAPI backend** provides both REST API and Telegram webhook endpoint. One service handles all clients.
+- **Identity layer** (`bimoi.infrastructure.identity`) maps `(channel, external_id)` to stable `user_id` (Account UUID). Each Telegram user gets their own Account.
+- **ContactService** depends only on the **ContactRepository** port (add, get_by_id, list_all, find_duplicate, append_context). One service instance per user_id is cached.
+- **Neo4jContactRepository** implements ContactRepository and talks to Neo4j. Initialized with a `user_id`, all queries are scoped to that user. Domain types (Person, RelationshipContext) remain the same; the adapter maps them to/from the graph.
 - **Neo4j** runs in Docker for local dev; the app connects via the official Neo4j Python driver (URI + credentials from env).
 
-No separate "API" or "services" layer for MVP: the bot is the application host and the only consumer of the core.
+The FastAPI app serves both REST endpoints (`/contacts`, `/contacts/search`) and Telegram webhook (`/webhook/telegram`). All contact data is scoped per user.
 
-## Neo4j graph model (MVP, single user)
+## Neo4j graph model (multi-user)
 
-- **Person** → node label `:Person` (or `:Contact`), properties: `id`, `name`, `phone_number` (optional), `external_id` (optional), `created_at`.
-- **RelationshipContext** → node label `:RelationshipContext`, properties: `id`, `description`, `created_at`.
-- **Link:** `(Person)-[:HAS_CONTEXT]->(RelationshipContext)` (one-to-one). Creating a contact = create Person node + RelationshipContext node + HAS_CONTEXT edge in one transaction.
-- **Duplicate check:** `MATCH (p:Person) WHERE (p.phone_number IS NOT NULL AND p.phone_number = $phone) OR (p.external_id IS NOT NULL AND p.external_id = $external_id) RETURN p` (and load context via the relationship).
-- **List all:** Match Person-HAS_CONTEXT->RelationshipContext, order by Person.created_at.
-- **Search:** Same match, filter with `toLower(c.description) CONTAINS toLower($keyword)` (or equivalent).
+**Identity Layer:**
+- **Account** → node label `:Account`, properties: `id` (UUID, the stable user_id), `name`, `bio`, `created_at`.
+- **ChannelLink** → node label `:ChannelLink`, properties: `channel` (e.g. "telegram"), `external_id` (e.g. Telegram user ID), `created_at`.
+- **Link:** `(ChannelLink)-[:BELONGS_TO]->(Account)`. Each Telegram user maps to one Account; multiple channels can link to the same Account.
+- **Constraint:** `(ChannelLink.channel, ChannelLink.external_id)` is unique.
 
-We do not introduce a User node for MVP (all Person nodes belong to the single implicit user). When you add multi-user later, introduce `(:User)-[:KNOWS]->(:Person)` and scope queries by user.
+**Contact Data:**
+- **Person** → node label `:Person`, properties: `id`, `name`, `phone_number` (optional), `external_id` (optional), `created_at`, `registered` (boolean: true for owner Account, false for contacts).
+- **RelationshipContext** → stored as properties on `:KNOWS` relationship: `context_id`, `context_description`, `context_created_at`, `context_updated_at`.
+- **Ownership:** `(owner:Person {id: user_id, registered: true})-[:KNOWS {context properties}]->(contact:Person {registered: false})`.
+- **Creating a contact:** Create Person node with `registered: false` + KNOWS relationship with context properties from the owner Person to the contact Person.
+- **Duplicate check:** Scoped by user_id: `MATCH (owner:Person {id: $user_id, registered: true})-[:KNOWS]->(p:Person) WHERE p.registered = false AND (p.phone_number = $phone OR p.external_id = $external_id)`.
+- **List all:** `MATCH (owner:Person {id: $user_id, registered: true})-[k:KNOWS]->(p:Person) WHERE p.registered = false RETURN p, k ORDER BY p.created_at`.
+- **Search:** Same match, filter with `toLower(k.context_description) CONTAINS toLower($keyword)`.
 
 ## Module layout
 
@@ -63,7 +70,7 @@ We do not introduce a User node for MVP (all Person nodes belong to the single i
 
 ## Pending-contact state
 
-Today ContactService keeps a single in-memory pending (contact card received, context not yet submitted). Per project context, "Bot restarts mid-flow → In-progress contact creation is lost safely." So for MVP we keep pending in memory in the bot process. If the bot runs as a long-lived process, one pending per process is acceptable for single user. Optionally later: persist pending (e.g. keyed by telegram user id) in Neo4j or a small key-value store so restarts don't lose it; that would be a new port and adapter.
+ContactService keeps per-user in-memory pending state (contact card received, context not yet submitted). The FastAPI backend caches one ContactService instance per user_id. File-backed persistence (`.cursor/pending_add_context.json`) is used for add-context flow so pending state survives process restarts. The system is designed so that "Bot restarts mid-flow → In-progress contact creation is lost safely" per project requirements.
 
 ## Docker (development)
 

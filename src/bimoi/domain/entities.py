@@ -1,8 +1,39 @@
-"""Domain entities: Person and RelationshipContext."""
+"""Domain entities: Person, RelationshipContext, and AccountProfile."""
 
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+
+# Max length for profile fields stored on Account node.
+BIO_MAX_LENGTH = 2000
+NAME_MAX_LENGTH = 500
+
+
+@dataclass(frozen=True)
+class AccountProfile:
+    """
+    Profile data for an Account (name and bio).
+    Stored on the Account node in Neo4j; used by identity layer and onboarding.
+    """
+
+    name: str | None = None
+    bio: str | None = None
+
+    def __post_init__(self):
+        if self.name is not None:
+            name = self.name.strip()
+            if len(name) > NAME_MAX_LENGTH:
+                raise ValueError(
+                    f"Account profile name must be at most {NAME_MAX_LENGTH} chars."
+                )
+            object.__setattr__(self, "name", name or None)
+        if self.bio is not None:
+            bio = self.bio.strip()
+            if len(bio) > BIO_MAX_LENGTH:
+                raise ValueError(
+                    f"Account profile bio must be at most {BIO_MAX_LENGTH} chars."
+                )
+            object.__setattr__(self, "bio", bio or None)
 
 
 @dataclass(frozen=True)

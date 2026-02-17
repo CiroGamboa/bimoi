@@ -86,8 +86,8 @@ def test_create_with_initial_name_stores_name(clean_neo4j):
     assert is_new is True
     profile = get_account_profile(clean_neo4j, user_id)
     assert profile is not None
-    assert profile["name"] == "Alice Smith"
-    assert profile["bio"] is None
+    assert profile.name == "Alice Smith"
+    assert profile.bio is None
 
 
 def test_update_account_profile_sets_name_and_bio(clean_neo4j):
@@ -96,8 +96,8 @@ def test_update_account_profile_sets_name_and_bio(clean_neo4j):
     update_account_profile(clean_neo4j, user_id, name="Bob", bio="Developer")
     profile = get_account_profile(clean_neo4j, user_id)
     assert profile is not None
-    assert profile["name"] == "Bob"
-    assert profile["bio"] == "Developer"
+    assert profile.name == "Bob"
+    assert profile.bio == "Developer"
 
 
 def test_update_account_profile_partial_only_updates_given_fields(clean_neo4j):
@@ -108,8 +108,8 @@ def test_update_account_profile_partial_only_updates_given_fields(clean_neo4j):
     update_account_profile(clean_neo4j, user_id, bio="Only bio set")
     profile = get_account_profile(clean_neo4j, user_id)
     assert profile is not None
-    assert profile["name"] == "Original"
-    assert profile["bio"] == "Only bio set"
+    assert profile.name == "Original"
+    assert profile.bio == "Only bio set"
 
 
 def test_get_account_profile_returns_none_for_unknown_user(clean_neo4j):
@@ -126,4 +126,13 @@ def test_update_account_profile_no_op_when_both_none(clean_neo4j):
     update_account_profile(clean_neo4j, user_id)
     profile = get_account_profile(clean_neo4j, user_id)
     assert profile is not None
-    assert profile["name"] == "Keep"
+    assert profile.name == "Keep"
+
+
+def test_update_account_profile_raises_for_bio_over_max_length(clean_neo4j):
+    from bimoi.domain.entities import BIO_MAX_LENGTH
+
+    ensure_channel_link_constraint(clean_neo4j)
+    user_id, _ = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "long_bio_user")
+    with pytest.raises(ValueError, match=f"at most {BIO_MAX_LENGTH}"):
+        update_account_profile(clean_neo4j, user_id, bio="x" * (BIO_MAX_LENGTH + 1))
