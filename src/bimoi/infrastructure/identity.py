@@ -1,8 +1,8 @@
-"""Identity layer: resolve channel + external_id to a stable user_id (Account).
+"""Identity layer: resolve channel + external_id to a stable user_id (Person).
 
-Account and ChannelLink nodes live in Neo4j. Used by Telegram (and later
-WhatsApp, web) to get a single user_id per person across channels.
-Profile (name, bio) is stored on the Account node and exposed via AccountProfile.
+The user is represented by a single Person node (owner) with account-like properties
+(id, name, bio, created_at, registered: true). ChannelLink links to that Person.
+Same shape as contact Person nodes; profile fields (name, bio) may later move to a relational DB.
 """
 
 import uuid
@@ -23,36 +23,43 @@ _LOOKUP_QUERY = """
 MERGE (c:ChannelLink { channel: $channel, external_id: $external_id })
 ON CREATE SET c.created_at = $created_at
 WITH c
-OPTIONAL MATCH (c)-[:BELONGS_TO]->(a:Account)
-RETURN a.id AS user_id
+OPTIONAL MATCH (c)-[:BELONGS_TO]->(p:Person)
+WHERE p.registered = true
+RETURN p.id AS user_id
 """
 
-_CREATE_ACCOUNT_QUERY = """
+_CREATE_OWNER_QUERY = """
 MATCH (c:ChannelLink { channel: $channel, external_id: $external_id })
 WHERE NOT (c)-[:BELONGS_TO]->()
 WITH c
-CREATE (a:Account { id: $user_id, created_at: $created_at })
-CREATE (c)-[:BELONGS_TO]->(a)
-RETURN a.id AS user_id
+CREATE (p:Person { id: $user_id, created_at: $created_at, registered: true })
+CREATE (c)-[:BELONGS_TO]->(p)
+RETURN p.id AS user_id
 """
 
-_SET_ACCOUNT_NAME_QUERY = """
-MATCH (a:Account { id: $user_id })
-SET a.name = $name
-RETURN a.id AS user_id
+_SET_OWNER_NAME_QUERY = """
+MATCH (p:Person { id: $user_id, registered: true })
+SET p.name = $name
+RETURN p.id AS user_id
 """
 
 _UPDATE_PROFILE_QUERY = """
-MATCH (a:Account { id: $user_id })
-WITH a
-SET a.name = CASE WHEN $name IS NOT NULL THEN $name ELSE a.name END,
-    a.bio = CASE WHEN $bio IS NOT NULL THEN $bio ELSE a.bio END
-RETURN a.id AS user_id
+MATCH (p:Person { id: $user_id, registered: true })
+WITH p
+SET p.name = CASE WHEN $name IS NOT NULL THEN $name ELSE p.name END,
+    p.bio = CASE WHEN $bio IS NOT NULL THEN $bio ELSE p.bio END
+RETURN p.id AS user_id
 """
 
 _GET_PROFILE_QUERY = """
-MATCH (a:Account { id: $user_id })
-RETURN a.name AS name, a.bio AS bio
+MATCH (p:Person { id: $user_id, registered: true })
+RETURN p.name AS name, p.bio AS bio
+"""
+
+_GET_PERSON_ID_BY_CHANNEL_EXTERNAL_ID_QUERY = """
+MATCH (c:ChannelLink { channel: $channel, external_id: $external_id })-[:BELONGS_TO]->(p:Person)
+WHERE p.registered = true
+RETURN p.id AS person_id
 """
 
 
@@ -69,13 +76,13 @@ def get_or_create_user_id(
     *,
     initial_name: str | None = None,
 ) -> tuple[str, bool]:
-    """Resolve (channel, external_id) to a stable user_id (Account id).
+    """Resolve (channel, external_id) to a stable user_id (owner Person id).
 
-    Returns (user_id, is_new_account). is_new_account is True when the Account
-    was created in this call; False when an existing Account was found.
-    If a link exists, returns the linked Account id. Otherwise creates an
-    Account (UUID), a ChannelLink, and BELONGS_TO, then returns the new id.
-    When creating, optional initial_name is stored on the Account.
+    Returns (user_id, is_new_account). is_new_account is True when the owner
+    Person was created in this call; False when an existing one was found.
+    If a link exists, returns the linked Person (owner) id. Otherwise creates a
+    Person (id, created_at, registered: true), links ChannelLink -[:BELONGS_TO]-> Person,
+    and returns the new id. When creating, optional initial_name is stored on the Person.
     Call ensure_channel_link_constraint at startup so MERGE is unique.
     """
     external_id = (external_id or "").strip()
@@ -100,7 +107,7 @@ def get_or_create_user_id(
         if record and record["user_id"] is not None:
             return (record["user_id"], False)
         result = session.run(
-            _CREATE_ACCOUNT_QUERY,
+            _CREATE_OWNER_QUERY,
             channel=channel,
             external_id=external_id,
             user_id=user_id,
@@ -108,7 +115,7 @@ def get_or_create_user_id(
         )
         record = result.single()
         if record and name:
-            session.run(_SET_ACCOUNT_NAME_QUERY, user_id=record["user_id"], name=name)
+            session.run(_SET_OWNER_NAME_QUERY, user_id=record["user_id"], name=name)
     if not record:
         raise RuntimeError("get_or_create_user_id: expected one result")
     return (record["user_id"], True)
@@ -121,7 +128,7 @@ def update_account_profile(
     name: str | None = None,
     bio: str | None = None,
 ) -> None:
-    """Update Account profile fields. Only provided (non-None) fields are set.
+    """Update owner Person profile fields (name, bio). Only provided (non-None) fields are set.
     Validates name/bio length using domain constants (NAME_MAX_LENGTH, BIO_MAX_LENGTH).
     """
     if name is None and bio is None:
@@ -143,8 +150,34 @@ def update_account_profile(
         )
 
 
+def get_person_id_by_channel_external_id(
+    driver,
+    channel: str,
+    external_id: str,
+) -> str | None:
+    """Return the owner Person id for (channel, external_id) if already linked, else None.
+
+    Read-only: does not create ChannelLink or Person. Use to detect if a contact
+    (e.g. Telegram user id) is already a Bimoi user so we can reuse their Person node.
+    """
+    channel = (channel or "").strip()
+    external_id = (external_id or "").strip()
+    if not channel or not external_id:
+        return None
+    with driver.session() as session:
+        result = session.run(
+            _GET_PERSON_ID_BY_CHANNEL_EXTERNAL_ID_QUERY,
+            channel=channel,
+            external_id=external_id,
+        )
+        record = result.single()
+    if not record or record["person_id"] is None:
+        return None
+    return record["person_id"]
+
+
 def get_account_profile(driver, user_id: str) -> AccountProfile | None:
-    """Return Account profile (name, bio) as domain type, or None if not found."""
+    """Return owner Person profile (name, bio) as domain type, or None if not found."""
     with driver.session() as session:
         result = session.run(_GET_PROFILE_QUERY, user_id=user_id)
         record = result.single()

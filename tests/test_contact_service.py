@@ -12,6 +12,7 @@ from bimoi.application import (
     PendingContact,
     PendingNotFound,
 )
+from bimoi.domain import Person, RelationshipContext
 from bimoi.infrastructure import InMemoryContactRepository
 
 
@@ -241,3 +242,31 @@ def test_add_context_empty_text_returns_invalid() -> None:
 
     assert isinstance(service.add_context(created.person_id, ""), AddContextInvalid)
     assert isinstance(service.add_context(created.person_id, "   "), AddContextInvalid)
+
+
+def test_submit_context_with_resolver_uses_existing_person_id() -> None:
+    """When resolver returns an id, repo.add is called with link_to_existing_id and result uses that id."""
+    repo = InMemoryContactRepository()
+    existing_id = "existing-person-uuid"
+    repo.add(
+        Person(
+            id=existing_id,
+            name="Bob",
+            relationship_context=RelationshipContext(description="Pre-existing"),
+        )
+    )
+
+    def resolver(eid: str):
+        return existing_id if eid == "123" else None
+
+    service = ContactService(repository=repo, resolve_existing_person_id=resolver)
+
+    card = ContactCardData(name="Bob", telegram_user_id=123)
+    pending = service.receive_contact_card(card)
+    assert isinstance(pending, PendingContact)
+    result = service.submit_context(pending.pending_id, "Met at conference")
+    assert isinstance(result, ContactCreated)
+    assert result.person_id == existing_id
+    assert result.name == "Bob"
+    assert len(service.list_contacts()) == 1
+    assert service.list_contacts()[0].person_id == existing_id

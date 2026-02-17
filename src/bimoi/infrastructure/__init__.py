@@ -5,6 +5,7 @@ from bimoi.infrastructure.identity import (
     ensure_channel_link_constraint,
     get_account_profile,
     get_or_create_user_id,
+    get_person_id_by_channel_external_id,
     update_account_profile,
 )
 from bimoi.infrastructure.memory_repository import InMemoryContactRepository
@@ -17,5 +18,6 @@ __all__ = [
     "ensure_channel_link_constraint",
     "get_account_profile",
     "get_or_create_user_id",
+    "get_person_id_by_channel_external_id",
     "update_account_profile",
 ]

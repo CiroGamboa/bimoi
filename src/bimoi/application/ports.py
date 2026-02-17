@@ -9,8 +9,17 @@ from bimoi.domain import Person
 class ContactRepository(Protocol):
     """Persists and queries contact aggregates (Person + RelationshipContext)."""
 
-    def add(self, person: Person) -> None:
-        """Store a contact. Person must include its RelationshipContext."""
+    def add(
+        self,
+        person: Person,
+        *,
+        link_to_existing_id: str | None = None,
+    ) -> None:
+        """Store a contact. Person must include its RelationshipContext.
+
+        When link_to_existing_id is set, only create (owner)-[:KNOWS]->(existing Person);
+        do not create or overwrite the target Person node.
+        """
         ...
 
     def get_by_id(self, person_id: str) -> Person | None:

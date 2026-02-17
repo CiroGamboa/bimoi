@@ -38,6 +38,7 @@ from bimoi.infrastructure import (
     Neo4jContactRepository,
     ensure_channel_link_constraint,
     get_or_create_user_id,
+    get_person_id_by_channel_external_id,
     update_account_profile,
 )
 from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
@@ -86,11 +87,23 @@ def _first_last(name: str) -> tuple[str, str | None]:
     return parts[0], parts[1]
 
 
+def _existing_person_id_or_none(driver, user_id: str, external_id: str) -> str | None:
+    """Resolve (telegram, external_id) to Person id; return None if not found or if self."""
+    person_id = get_person_id_by_channel_external_id(driver, CHANNEL_TELEGRAM, external_id)
+    if person_id is None or person_id == user_id:
+        return None
+    return person_id
+
+
 def get_service(user_id: str, app: FastAPI) -> ContactService:
     driver = _get_cached_driver(app)
     if user_id not in _service_cache:
         repo = Neo4jContactRepository(driver, user_id=user_id)
-        _service_cache[user_id] = ContactService(repo)
+
+        def resolve(eid: str) -> str | None:
+            return _existing_person_id_or_none(driver, user_id, eid)
+
+        _service_cache[user_id] = ContactService(repo, resolve_existing_person_id=resolve)
     return _service_cache[user_id]
 
 

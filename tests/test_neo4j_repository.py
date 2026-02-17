@@ -5,7 +5,12 @@ import pytest
 
 from bimoi.application import ContactCardData
 from bimoi.domain import Person, RelationshipContext
-from bimoi.infrastructure import Neo4jContactRepository
+from bimoi.infrastructure import (
+    Neo4jContactRepository,
+    ensure_channel_link_constraint,
+    get_or_create_user_id,
+)
+from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
 
 
 @pytest.fixture(scope="session")
@@ -164,3 +169,59 @@ def test_context_stored_on_relationship(clean_neo4j):
         # Verify no RelationshipContext nodes exist
         result = session.run("MATCH (c:RelationshipContext) RETURN count(c) AS cnt")
         assert result.single()["cnt"] == 0
+
+
+def test_add_link_to_existing_person_reuses_node(clean_neo4j):
+    """When link_to_existing_id is set, only KNOWS is created; no new Person node."""
+    ensure_channel_link_constraint(clean_neo4j)
+    # Bob is already on the app (owner Person via identity)
+    bob_id, _ = get_or_create_user_id(
+        clean_neo4j, CHANNEL_TELEGRAM, "bob_telegram_999", initial_name="Bob"
+    )
+    # Alice adds Bob as a contact (link to existing Person)
+    repo_alice = Neo4jContactRepository(clean_neo4j, user_id="alice-uuid")
+    ctx = RelationshipContext(description="From conference")
+    person_placeholder = Person(
+        name="Bob",
+        phone_number="+999",
+        relationship_context=ctx,
+    )
+    repo_alice.add(person_placeholder, link_to_existing_id=bob_id)
+
+    # Alice's list includes Bob (one Person node for Bob)
+    alice_contacts = repo_alice.list_all()
+    assert len(alice_contacts) == 1
+    assert alice_contacts[0].id == bob_id
+    assert alice_contacts[0].name == "Bob"
+
+    # Only one Person with id bob_id in the graph
+    with clean_neo4j.session() as session:
+        result = session.run(
+            "MATCH (p:Person {id: $id}) RETURN count(p) AS cnt", id=bob_id
+        )
+        assert result.single()["cnt"] == 1
+        result = session.run(
+            "MATCH (owner:Person {id: 'alice-uuid'})-[k:KNOWS]->(p:Person {id: $id}) "
+            "RETURN k.context_description AS ctx",
+            id=bob_id,
+        )
+        rec = result.single()
+        assert rec is not None
+        assert rec["ctx"] == "From conference"
+
+
+def test_find_duplicate_returns_registered_person(clean_neo4j):
+    """find_duplicate matches by external_id even when Person has registered: true."""
+    ensure_channel_link_constraint(clean_neo4j)
+    bob_id, _ = get_or_create_user_id(
+        clean_neo4j, CHANNEL_TELEGRAM, "tid_dup_777", initial_name="Bob"
+    )
+    repo = Neo4jContactRepository(clean_neo4j, user_id="owner-x")
+    repo.add(
+        Person(name="Bob", relationship_context=RelationshipContext(description="Friend")),
+        link_to_existing_id=bob_id,
+    )
+    card = ContactCardData(name="Other", telegram_user_id="tid_dup_777")
+    found = repo.find_duplicate(card)
+    assert found is not None
+    assert found.id == bob_id

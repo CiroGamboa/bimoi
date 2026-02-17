@@ -17,7 +17,16 @@ class InMemoryContactRepository:
         self._by_id: dict[str, Person] = {}
         self._order: list[str] = []
 
-    def add(self, person: Person) -> None:
+    def add(
+        self,
+        person: Person,
+        *,
+        link_to_existing_id: str | None = None,
+    ) -> None:
+        if link_to_existing_id is not None and link_to_existing_id.strip() != "":
+            if link_to_existing_id in self._by_id and link_to_existing_id not in self._order:
+                self._order.append(link_to_existing_id)
+            return
         if person.id in self._by_id:
             return
         self._by_id[person.id] = person

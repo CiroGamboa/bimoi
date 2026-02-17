@@ -8,6 +8,7 @@ from bimoi.infrastructure import (
     ensure_channel_link_constraint,
     get_account_profile,
     get_or_create_user_id,
+    get_person_id_by_channel_external_id,
     update_account_profile,
 )
 from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
@@ -136,3 +137,23 @@ def test_update_account_profile_raises_for_bio_over_max_length(clean_neo4j):
     user_id, _ = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "long_bio_user")
     with pytest.raises(ValueError, match=f"at most {BIO_MAX_LENGTH}"):
         update_account_profile(clean_neo4j, user_id, bio="x" * (BIO_MAX_LENGTH + 1))
+
+
+def test_get_person_id_by_channel_external_id_returns_id_when_linked(clean_neo4j):
+    ensure_channel_link_constraint(clean_neo4j)
+    user_id, _ = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "existing_telegram_123")
+    person_id = get_person_id_by_channel_external_id(clean_neo4j, CHANNEL_TELEGRAM, "existing_telegram_123")
+    assert person_id is not None
+    assert person_id == user_id
+
+
+def test_get_person_id_by_channel_external_id_returns_none_when_not_linked(clean_neo4j):
+    ensure_channel_link_constraint(clean_neo4j)
+    person_id = get_person_id_by_channel_external_id(clean_neo4j, CHANNEL_TELEGRAM, "never_signed_up_456")
+    assert person_id is None
+
+
+def test_get_person_id_by_channel_external_id_returns_none_for_empty_input(clean_neo4j):
+    ensure_channel_link_constraint(clean_neo4j)
+    assert get_person_id_by_channel_external_id(clean_neo4j, "", "123") is None
+    assert get_person_id_by_channel_external_id(clean_neo4j, CHANNEL_TELEGRAM, "") is None

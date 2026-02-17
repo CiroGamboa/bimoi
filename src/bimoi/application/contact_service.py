@@ -1,6 +1,7 @@
 """Contact creation, list, and search. Single pending per service instance."""
 
 import uuid
+from collections.abc import Callable
 
 from bimoi.application.dto import (
     AddContextInvalid,
@@ -21,8 +22,14 @@ from bimoi.domain import Person, RelationshipContext
 class ContactService:
     """Core flow: receive contact card -> pending -> submit context -> stored. List and search."""
 
-    def __init__(self, repository: ContactRepository) -> None:
+    def __init__(
+        self,
+        repository: ContactRepository,
+        *,
+        resolve_existing_person_id: Callable[[str], str | None] | None = None,
+    ) -> None:
         self._repo = repository
+        self._resolve_existing_person_id = resolve_existing_person_id
         self._pending_id: str | None = None
         self._pending_card: ContactCardData | None = None
 
@@ -78,10 +85,19 @@ class ContactService:
         except ValueError:
             return PendingNotFound(pending_id=pending_id)
 
-        self._repo.add(person)
+        link_to_existing_id: str | None = None
+        if self._resolve_existing_person_id and card.telegram_user_id is not None:
+            eid = str(card.telegram_user_id).strip()
+            if eid:
+                link_to_existing_id = self._resolve_existing_person_id(eid)
+                if link_to_existing_id == "":
+                    link_to_existing_id = None
+
+        self._repo.add(person, link_to_existing_id=link_to_existing_id)
+        effective_id = link_to_existing_id if link_to_existing_id else person.id
         self._pending_id = None
         self._pending_card = None
-        return ContactCreated(person_id=person.id, name=person.name)
+        return ContactCreated(person_id=effective_id, name=person.name)
 
     def list_contacts(self) -> list[ContactSummary]:
         """Return all contacts (name, context, created_at)."""
