@@ -171,7 +171,7 @@ def _run_effect(
         return actions, "DONE"
 
     if state_value == "do_search":
-        keyword = payload.get("text") or ""
+        keyword = payload.get("keyword") or payload.get("text") or ""
         summaries = service.search_contacts(keyword)
         actions.append(ClearSlots(keys=["search_pending"]))
         if not summaries:

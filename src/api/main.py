@@ -471,11 +471,15 @@ def _update_to_event(update, slots: dict) -> dict | None:
             subtype = "command_search"
         elif text == "Add contact" or t == "add contact":
             subtype = "command_add_contact"
-        elif text.startswith("/search "):
-            if not text[8:].strip():
-                subtype = "unsupported"
+        elif text == "/search" or text.startswith("/search "):
+            if not text[7:].strip():  # "/search" alone or "/search " with no keyword
+                subtype = "command_search"
             else:
                 subtype = "search_keyword"
+                payload["keyword"] = text[7:].strip()
+            # #region agent log
+            _debug_log("search_event", {"text": text, "subtype": subtype, "keyword": payload.get("keyword")}, "H_search")
+            # #endregion
         elif slots.get("search_pending"):
             subtype = "search_keyword"
         elif slots.get("person_id") or slots.get("contact_name"):
@@ -518,6 +522,8 @@ _ONBOARDING_MSG = (
 _ONBOARDING_ASK_NAME_MSG = "What should I call you? (Reply with your name.)"
 
 _ONBOARDING_ASK_BIO_MSG = "Add a short bio? (One line about yourself.)"
+
+_ONBOARDING_COMPLETE_MSG = "You're all set! Welcome to Bimoi."
 
 # Reuse same copy as flow add_contact_howto
 _ADD_CONTACT_HOWTO = (
@@ -635,7 +641,7 @@ async def webhook_telegram(request: Request):
         _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
         return {}
 
-    # Onboarding: user replying with bio (mandatory) → save, then show how to add contact + Add contact button.
+    # Onboarding: user replying with bio (mandatory) → save, then finishing welcome + how to add contact (no button).
     if slots.get("onboarding_awaiting_bio") and event and event.get("type") == "text":
         text = (event.get("payload") or {}).get("text") or ""
         text = text.strip()
@@ -646,11 +652,8 @@ async def webhook_telegram(request: Request):
         _debug_log("bio_saved_sending_howto", {"returning": True}, "H3")
         # #endregion
         update_account_profile(driver, user_id, bio=text)
-        await bot.send_message(
-            chat_id=chat_id,
-            text=_ADD_CONTACT_HOWTO,
-            reply_markup=_keyboard_by_name("welcome_no_contacts", slots),
-        )
+        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_COMPLETE_MSG)
+        await bot.send_message(chat_id=chat_id, text=_ADD_CONTACT_HOWTO)
         new_slots = {k: v for k, v in slots.items() if k not in ("onboarding_awaiting_name", "onboarding_awaiting_bio")}
         _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
         return {}
