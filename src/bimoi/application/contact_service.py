@@ -92,6 +92,19 @@ class ContactService:
                 link_to_existing_id = self._resolve_existing_person_id(eid)
                 if link_to_existing_id == "":
                     link_to_existing_id = None
+        # #region agent log
+        try:
+            import json
+            import time
+            from pathlib import Path
+            p = Path(__file__).resolve().parent.parent.parent.parent / ".cursor" / "debug-ec232c.log"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"sessionId": "ec232c", "location": "contact_service.py:submit_context", "message": "submit_context_card_and_resolve", "data": {"card_phone": getattr(card, "phone_number", None), "card_telegram_user_id": getattr(card, "telegram_user_id", None), "link_to_existing_id": link_to_existing_id}, "hypothesisId": "H2", "timestamp": int(time.time() * 1000)}
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload) + "\n")
+        except Exception:
+            pass
+        # #endregion
 
         self._repo.add(person, link_to_existing_id=link_to_existing_id)
         effective_id = link_to_existing_id if link_to_existing_id else person.id

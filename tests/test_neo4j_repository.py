@@ -38,7 +38,7 @@ def test_add_get_by_id_list_all(clean_neo4j):
     ctx = RelationshipContext(description="Engineer, React")
     person = Person(
         name="Alice",
-        phone_number="+111",
+        phone_number="+12025551111",
         relationship_context=ctx,
     )
     repo.add(person)
@@ -58,15 +58,32 @@ def test_find_duplicate_by_phone(clean_neo4j):
     repo = Neo4jContactRepository(clean_neo4j, user_id="default")
     person = Person(
         name="Bob",
-        phone_number="+222",
+        phone_number="+12025552222",
         relationship_context=RelationshipContext(description="Designer"),
     )
     repo.add(person)
 
-    card_dup = ContactCardData(name="Other", phone_number="+222")
+    card_dup = ContactCardData(name="Other", phone_number="+12025552222")
     assert repo.find_duplicate(card_dup) is not None
-    card_no_dup = ContactCardData(name="X", phone_number="+999")
+    card_no_dup = ContactCardData(name="X", phone_number="+12025559999")
     assert repo.find_duplicate(card_no_dup) is None
+
+
+def test_find_duplicate_by_phone_e164_deduplication(clean_neo4j):
+    """Different phone formats (same number) match the same Person (E.164 deduplication)."""
+    repo = Neo4jContactRepository(clean_neo4j, user_id="default")
+    person = Person(
+        name="Bob",
+        phone_number="+1 202-555-1234",
+        relationship_context=RelationshipContext(description="Designer"),
+    )
+    repo.add(person)
+    # Same number, different format (with country code so normalizes without default_region)
+    card = ContactCardData(name="Other", phone_number="+1 (202) 555-1234")
+    found = repo.find_duplicate(card)
+    assert found is not None
+    assert found.id == person.id
+    assert found.phone_number == "+12025551234"
 
 
 def test_find_duplicate_by_external_id(clean_neo4j):
@@ -109,7 +126,7 @@ def test_multi_user_isolation(clean_neo4j):
 
     person = Person(
         name="Shared",
-        phone_number="+555",
+        phone_number="+12025555555",
         relationship_context=RelationshipContext(description="Only for A"),
     )
     repo_a.add(person)
@@ -117,7 +134,7 @@ def test_multi_user_isolation(clean_neo4j):
     assert len(repo_a.list_all()) == 1
     assert len(repo_b.list_all()) == 0
 
-    card = ContactCardData(name="X", phone_number="+555")
+    card = ContactCardData(name="X", phone_number="+12025555555")
     assert repo_a.find_duplicate(card) is not None
     assert repo_b.find_duplicate(card) is None
 
@@ -130,7 +147,7 @@ def test_append_context(clean_neo4j):
     ctx = RelationshipContext(description="Original context")
     person = Person(
         name="Dave",
-        phone_number="+444",
+        phone_number="+12025554444",
         relationship_context=ctx,
     )
     repo.add(person)
@@ -183,7 +200,7 @@ def test_add_link_to_existing_person_reuses_node(clean_neo4j):
     ctx = RelationshipContext(description="From conference")
     person_placeholder = Person(
         name="Bob",
-        phone_number="+999",
+        phone_number="+12025559999",
         relationship_context=ctx,
     )
     repo_alice.add(person_placeholder, link_to_existing_id=bob_id)

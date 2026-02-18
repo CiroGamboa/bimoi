@@ -2,6 +2,7 @@
 
 from bimoi.application.dto import ContactCardData
 from bimoi.domain import Person, RelationshipContext
+from bimoi.infrastructure.phone import normalize_phone
 
 
 def _normalize_telegram_id(value: int | str | None) -> str | None:
@@ -29,6 +30,16 @@ class InMemoryContactRepository:
             return
         if person.id in self._by_id:
             return
+        stored_phone = normalize_phone((person.phone_number or "").strip(), default_region=None) or person.phone_number
+        if stored_phone != person.phone_number:
+            person = Person(
+                id=person.id,
+                name=person.name,
+                phone_number=stored_phone,
+                external_id=person.external_id,
+                created_at=person.created_at,
+                relationship_context=person.relationship_context,
+            )
         self._by_id[person.id] = person
         self._order.append(person.id)
 
@@ -39,13 +50,16 @@ class InMemoryContactRepository:
         return [self._by_id[pid] for pid in self._order if pid in self._by_id]
 
     def find_duplicate(self, card: ContactCardData) -> Person | None:
-        card_phone = (card.phone_number or "").strip() or None
+        raw_phone = (card.phone_number or "").strip() or None
+        card_phone = normalize_phone(raw_phone, default_region=None) if raw_phone else None
         card_tid = _normalize_telegram_id(card.telegram_user_id)
         for person in self._by_id.values():
             if card_tid and person.external_id and person.external_id == card_tid:
                 return person
-            if card_phone and person.phone_number and person.phone_number == card_phone:
-                return person
+            if card_phone and person.phone_number:
+                person_phone = normalize_phone(person.phone_number, default_region=None) or person.phone_number
+                if person_phone == card_phone:
+                    return person
         return None
 
     def append_context(self, person_id: str, additional_text: str) -> bool:

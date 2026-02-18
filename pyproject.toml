@@ -23,6 +23,7 @@ api = [
     "pyyaml>=6.0",
     "xstate @ git+https://github.com/statelyai/xstate-python.git",
     "Js2Py>=0.71,<0.72",
+    "phonenumbers>=8.13.0",
 ]
 
 [tool.setuptools.packages.find]

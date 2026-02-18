@@ -12,12 +12,13 @@ NAME_MAX_LENGTH = 500
 @dataclass(frozen=True)
 class AccountProfile:
     """
-    Profile data for an Account (name and bio).
-    Stored on the Account node in Neo4j; used by identity layer and onboarding.
+    Profile data for an Account (name, bio, phone).
+    Stored on the owner Person node in Neo4j; used by identity layer and onboarding.
     """
 
     name: str | None = None
     bio: str | None = None
+    phone_number: str | None = None
 
     def __post_init__(self):
         if self.name is not None:

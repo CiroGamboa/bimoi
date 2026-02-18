@@ -8,7 +8,7 @@ from datetime import datetime
 
 from bimoi.application.dto import ContactCardData
 from bimoi.domain import Person, RelationshipContext
-from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
+from bimoi.infrastructure.phone import normalize_phone
 
 
 def _datetime_to_iso(dt: datetime) -> str:
@@ -68,6 +68,8 @@ class Neo4jContactRepository:
                     ctx_created_at=ctx_timestamp,
                 )
             else:
+                telegram_id = (person.external_id or "").strip() or None
+                stored_phone = normalize_phone((person.phone_number or "").strip(), default_region=None) or ""
                 session.run(
                     """
                     MERGE (owner:Person {id: $user_id, registered: true})
@@ -76,6 +78,7 @@ class Neo4jContactRepository:
                         name: $name,
                         phone_number: $phone_number,
                         external_id: $external_id,
+                        telegram_id: $telegram_id,
                         created_at: $person_created_at,
                         registered: false
                     })
@@ -89,8 +92,9 @@ class Neo4jContactRepository:
                     user_id=self._user_id,
                     person_id=person.id,
                     name=person.name,
-                    phone_number=person.phone_number or "",
+                    phone_number=stored_phone,
                     external_id=person.external_id or "",
+                    telegram_id=telegram_id,
                     person_created_at=_datetime_to_iso(person.created_at),
                     ctx_id=ctx.id,
                     description=ctx.description,
@@ -126,12 +130,13 @@ class Neo4jContactRepository:
             return [_record_to_person(rec) for rec in result]
 
     def find_duplicate(self, card: ContactCardData) -> Person | None:
-        card_phone = (card.phone_number or "").strip() or None
+        raw_phone = (card.phone_number or "").strip() or None
+        card_phone = normalize_phone(raw_phone, default_region=None) if raw_phone else None
         card_tid = _normalize_telegram_id(card.telegram_user_id)
         if not card_phone and not card_tid:
             return None
         with self._driver.session() as session:
-            # Try phone first (no OPTIONAL MATCH).
+            # Try phone first (E.164 normalized for deduplication).
             if card_phone:
                 result = session.run(
                     """
@@ -146,31 +151,17 @@ class Neo4jContactRepository:
                 record = result.single()
                 if record:
                     return _record_to_person(record)
-            # Try external_id: first by node property, then by ChannelLink (registered users).
+            # Match by telegram_id or external_id (both set on Person for Telegram contacts).
             if card_tid:
                 result = session.run(
                     """
                     MATCH (owner:Person {id: $user_id, registered: true})-[k:KNOWS]->(p:Person)
-                    WHERE p.external_id = $external_id
+                    WHERE p.telegram_id = $external_id OR p.external_id = $external_id
                     RETURN p, k
                     LIMIT 1
                     """,
                     user_id=self._user_id,
                     external_id=card_tid,
-                )
-                record = result.single()
-                if record:
-                    return _record_to_person(record)
-                result = session.run(
-                    """
-                    MATCH (owner:Person {id: $user_id, registered: true})-[k:KNOWS]->(p:Person)
-                    MATCH (c:ChannelLink {channel: $channel, external_id: $external_id})-[:BELONGS_TO]->(p)
-                    RETURN p, k
-                    LIMIT 1
-                    """,
-                    user_id=self._user_id,
-                    external_id=card_tid,
-                    channel=CHANNEL_TELEGRAM,
                 )
                 record = result.single()
                 if record:
@@ -206,7 +197,7 @@ def _record_to_person(record) -> Person:
     phone_number = p.get("phone_number") or None
     if phone_number == "":
         phone_number = None
-    external_id = p.get("external_id") or None
+    external_id = p.get("external_id") or p.get("telegram_id") or None
     if external_id == "":
         external_id = None
     person_created_at = _iso_to_datetime(p["created_at"])

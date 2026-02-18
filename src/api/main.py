@@ -36,12 +36,13 @@ from bimoi.application import (
 )
 from bimoi.infrastructure import (
     Neo4jContactRepository,
-    ensure_channel_link_constraint,
+    ensure_identity_constraint,
     get_or_create_user_id,
     get_person_id_by_channel_external_id,
     update_account_profile,
 )
 from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
+from bimoi.infrastructure.phone import normalize_phone
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -122,7 +123,7 @@ async def lifespan(app: FastAPI):
     )
     try:
         app.state.driver = _get_driver()
-        ensure_channel_link_constraint(app.state.driver)
+        ensure_identity_constraint(app.state.driver)
         yield
     finally:
         if getattr(app.state, "driver", None) is not None:
@@ -536,6 +537,8 @@ _ONBOARDING_ASK_NAME_MSG = "What should I call you? (Reply with your name.)"
 
 _ONBOARDING_ASK_BIO_MSG = "Add a short bio? (One line about yourself.)"
 
+_ONBOARDING_ASK_PHONE_MSG = "Share your phone number so we can save it."
+
 _ONBOARDING_COMPLETE_MSG = "You're all set! Welcome to Bimoi."
 
 # Reuse same copy as flow add_contact_howto
@@ -551,6 +554,25 @@ def _debug_log(message: str, data: dict, hypothesis_id: str = "") -> None:
     with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps({"message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": __import__("time").time()}) + "\n")
 # #endregion
+
+# #region agent log
+def _session_debug(location: str, message: str, data: dict, hypothesis_id: str = "") -> None:
+    import json
+    import time
+    p = Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug-ec232c.log"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"sessionId": "ec232c", "location": location, "message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": int(time.time() * 1000)}
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
+# #endregion
+
+
+def _default_region_from_telegram(effective_user) -> str:
+    """Return a phonenumbers default_region (e.g. US, IT) from Telegram language_code."""
+    code = (getattr(effective_user, "language_code", None) or "").strip()[:2].upper()
+    if not code or code == "EN":
+        return "US"
+    return code
 
 
 def _telegram_display_name(effective_user) -> str | None:
@@ -590,12 +612,18 @@ async def webhook_telegram(request: Request):
         return {}
     driver = _get_cached_driver(app)
     initial_name = _telegram_display_name(update.effective_user)
+    # #region agent log
+    _session_debug("main.py:webhook_telegram", "before get_or_create_user_id", {"effective_user_id": getattr(update.effective_user, "id", None), "initial_name": initial_name, "effective_user_has_phone": hasattr(update.effective_user, "phone_number") and getattr(update.effective_user, "phone_number", None) is not None}, "H1")
+    # #endregion
     user_id, is_new_user = get_or_create_user_id(
         driver,
         CHANNEL_TELEGRAM,
         str(update.effective_user.id),
         initial_name=initial_name,
     )
+    # #region agent log
+    _session_debug("main.py:webhook_telegram", "after get_or_create_user_id", {"user_id": user_id, "is_new_user": is_new_user}, "H1")
+    # #endregion
     _raw_chat_id = update.effective_chat.id if update.effective_chat else None
     chat_id = int(_raw_chat_id) if _raw_chat_id is not None else None
     if chat_id is None:
@@ -611,6 +639,7 @@ async def webhook_telegram(request: Request):
     state = _get_flow_state(user_id, chat_id)
     event = _update_to_event(update, state.get("slots") or {})
     # #region agent log
+    _session_debug("main.py:webhook_telegram", "event_built", {"event_type": event.get("type") if event else None, "event_subtype": event.get("subtype") if event else None, "payload_phone": event.get("payload", {}).get("phone_number") if event else None, "payload_telegram_user_id": event.get("payload", {}).get("telegram_user_id") if event else None}, "H2")
     _debug_log("webhook state", {"is_new_user": is_new_user, "event_type": event.get("type") if event else None, "event_subtype": event.get("subtype") if event else None, "onboarding_awaiting": (state.get("slots") or {}).get("onboarding_awaiting_info")}, "H1")
     # #endregion
 
@@ -629,10 +658,16 @@ async def webhook_telegram(request: Request):
     )
     # #endregion
 
-    # New user hitting /start: onboarding + ask for name only (no buttons until after name + bio).
+    # New user hitting /start: onboarding + ask for name only (no reply keyboard until phone step).
     if is_new_user and event and event.get("subtype") == "command_start":
+        from telegram import ReplyKeyboardRemove
+
         await bot.send_message(chat_id=chat_id, text=_ONBOARDING_MSG)
-        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_NAME_MSG)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=_ONBOARDING_ASK_NAME_MSG,
+            reply_markup=ReplyKeyboardRemove(),
+        )
         new_state = {
             "current_node_id": state.get("current_node_id", "idle"),
             "slots": {**slots, "onboarding_awaiting_name": True},
@@ -654,21 +689,68 @@ async def webhook_telegram(request: Request):
         _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
         return {}
 
-    # Onboarding: user replying with bio (mandatory) → save, then finishing welcome + how to add contact (no button).
+    # Onboarding: user replying with bio (mandatory) → save, then ask for phone (request_contact button).
     if slots.get("onboarding_awaiting_bio") and event and event.get("type") == "text":
         text = (event.get("payload") or {}).get("text") or ""
         text = text.strip()
         if event.get("subtype") == "command_start" or not text:
             await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_BIO_MSG)
             return {}
-        # #region agent log
-        _debug_log("bio_saved_sending_howto", {"returning": True}, "H3")
-        # #endregion
         update_account_profile(driver, user_id, bio=text)
-        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_COMPLETE_MSG)
-        await bot.send_message(chat_id=chat_id, text=_ADD_CONTACT_HOWTO)
-        new_slots = {k: v for k, v in slots.items() if k not in ("onboarding_awaiting_name", "onboarding_awaiting_bio")}
+        from telegram import KeyboardButton, ReplyKeyboardMarkup
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=_ONBOARDING_ASK_PHONE_MSG,
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton(text="Share my number", request_contact=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            ),
+        )
+        new_slots = {k: v for k, v in slots.items() if k != "onboarding_awaiting_bio"}
+        new_slots["onboarding_awaiting_phone"] = True
         _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
+        return {}
+
+    # Onboarding: user shared contact (phone) → save E.164, complete onboarding.
+    if slots.get("onboarding_awaiting_phone") and event and event.get("type") == "contact_shared":
+        payload = event.get("payload") or {}
+        payload_tid = payload.get("telegram_user_id")
+        payload_phone = payload.get("phone_number")
+        if payload_tid is not None and str(payload_tid) == str(update.effective_user.id) and payload_phone:
+            default_region = _default_region_from_telegram(update.effective_user)
+            normalized = normalize_phone((payload_phone or "").strip(), default_region=default_region)
+            if normalized:
+                update_account_profile(driver, user_id, phone_number=normalized)
+            from telegram import ReplyKeyboardRemove
+
+            await bot.send_message(
+                chat_id=chat_id,
+                text=_ONBOARDING_COMPLETE_MSG,
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            await bot.send_message(chat_id=chat_id, text=_ADD_CONTACT_HOWTO)
+            new_slots = {k: v for k, v in slots.items() if k != "onboarding_awaiting_phone"}
+            _set_flow_state(user_id, chat_id, {"current_node_id": state.get("current_node_id", "idle"), "slots": new_slots})
+            return {}
+        # Not their own contact: re-ask for phone.
+        await bot.send_message(chat_id=chat_id, text=_ONBOARDING_ASK_PHONE_MSG)
+        return {}
+
+    # Still in phone step but sent something other than contact (e.g. text): re-ask.
+    if slots.get("onboarding_awaiting_phone") and event:
+        from telegram import KeyboardButton, ReplyKeyboardMarkup
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=_ONBOARDING_ASK_PHONE_MSG,
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton(text="Share my number", request_contact=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+            ),
+        )
         return {}
 
     if is_new_user:
@@ -676,6 +758,19 @@ async def webhook_telegram(request: Request):
 
     if event is None:
         return {}
+
+    # User shared their own contact: save E.164 phone on their Person node and skip add-contact flow.
+    if event.get("type") == "contact_shared":
+        payload = event.get("payload") or {}
+        payload_tid = payload.get("telegram_user_id")
+        payload_phone = payload.get("phone_number")
+        if payload_tid is not None and str(payload_tid) == str(update.effective_user.id) and payload_phone:
+            default_region = _default_region_from_telegram(update.effective_user)
+            normalized = normalize_phone((payload_phone or "").strip(), default_region=default_region)
+            if normalized:
+                update_account_profile(driver, user_id, phone_number=normalized)
+            await bot.send_message(chat_id=chat_id, text="We've saved your number.")
+            return {}
 
     actions, new_state_value, new_slots = run_xstate_flow(
         state.get("current_node_id"),

@@ -22,7 +22,7 @@ def _service() -> ContactService:
 
 def test_valid_contact_card_then_context_creates_contact() -> None:
     service = _service()
-    card = ContactCardData(name="Alice", phone_number="+123")
+    card = ContactCardData(name="Alice", phone_number="+12025551234")
     r1 = service.receive_contact_card(card)
     assert isinstance(r1, PendingContact)
     assert r1.name == "Alice"
@@ -67,14 +67,14 @@ def test_search_case_insensitive() -> None:
 
 def test_duplicate_by_phone() -> None:
     service = _service()
-    card1 = ContactCardData(name="Alice", phone_number="+111")
+    card1 = ContactCardData(name="Alice", phone_number="+12025551111")
     r1 = service.receive_contact_card(card1)
     assert isinstance(r1, PendingContact)
     created = service.submit_context(r1.pending_id, "Engineer")
     assert isinstance(created, ContactCreated)
     person_id = created.person_id
 
-    card2 = ContactCardData(name="Alice Other", phone_number="+111")
+    card2 = ContactCardData(name="Alice Other", phone_number="+12025551111")
     r2 = service.receive_contact_card(card2)
     assert isinstance(r2, Duplicate)
     assert r2.person_id == person_id
@@ -101,12 +101,12 @@ def test_duplicate_by_telegram_user_id() -> None:
 
 def test_same_name_different_phone_allowed() -> None:
     service = _service()
-    card1 = ContactCardData(name="Alice", phone_number="+111")
+    card1 = ContactCardData(name="Alice", phone_number="+12025551111")
     p1 = service.receive_contact_card(card1)
     assert isinstance(p1, PendingContact)
     service.submit_context(p1.pending_id, "First Alice")
 
-    card2 = ContactCardData(name="Alice", phone_number="+222")
+    card2 = ContactCardData(name="Alice", phone_number="+12025552222")
     p2 = service.receive_contact_card(card2)
     assert isinstance(p2, PendingContact)
     service.submit_context(p2.pending_id, "Second Alice")

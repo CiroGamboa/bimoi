@@ -3,6 +3,7 @@
 from bimoi.infrastructure.identity import (
     CHANNEL_TELEGRAM,
     ensure_channel_link_constraint,
+    ensure_identity_constraint,
     get_account_profile,
     get_or_create_user_id,
     get_person_id_by_channel_external_id,
@@ -16,6 +17,7 @@ __all__ = [
     "InMemoryContactRepository",
     "Neo4jContactRepository",
     "ensure_channel_link_constraint",
+    "ensure_identity_constraint",
     "get_account_profile",
     "get_or_create_user_id",
     "get_person_id_by_channel_external_id",

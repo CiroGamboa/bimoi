@@ -60,11 +60,10 @@ def test_different_external_id_returns_different_user_id(clean_neo4j):
     assert a != b
 
 
-def test_different_channel_same_external_id_returns_different_user_id(clean_neo4j):
+def test_unsupported_channel_raises(clean_neo4j):
     ensure_channel_link_constraint(clean_neo4j)
-    a, _ = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "555")
-    b, _ = get_or_create_user_id(clean_neo4j, "whatsapp", "555")
-    assert a != b
+    with pytest.raises(ValueError, match="Unsupported channel"):
+        get_or_create_user_id(clean_neo4j, "whatsapp", "555")
 
 
 def test_empty_external_id_raises(clean_neo4j):
