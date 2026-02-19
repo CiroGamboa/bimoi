@@ -1,6 +1,6 @@
 # Backend: FastAPI + Telegram webhook. Run with docker compose or:
 #   docker build -t bimoi-backend . && docker run --env-file .env -p 8000:8000 bimoi-backend
-FROM python:3.11-slim
+FROM python:3.12.7-slim-bookworm
 
 WORKDIR /app
 
@@ -14,7 +14,13 @@ COPY src ./src
 COPY flows ./flows
 
 # Install deps (bot + api extras: neo4j, telegram, fastapi, uvicorn, xstate)
-RUN pip install --no-cache-dir -e ".[bot,api]"
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -e ".[bot,api]"
+
+# Run as non-root user
+RUN useradd --create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
 # Default: run FastAPI (Telegram bot via webhook at /webhook/telegram)
 ENV PORT=8000

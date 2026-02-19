@@ -9,7 +9,7 @@ requires-python = ">=3.10"
 dev = [
     "pytest>=8.0",
     "testcontainers[neo4j]>=4.0",
-    "pre-commit>=4.0.0",
+    "pre-commit>=4.2.0",
 ]
 bot = [
     "neo4j>=5.0",
