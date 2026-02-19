@@ -39,6 +39,7 @@ from bimoi.infrastructure import (
     ensure_identity_constraint,
     get_or_create_user_id,
     get_person_id_by_channel_external_id,
+    set_registered,
     update_account_profile,
 )
 from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
@@ -723,6 +724,7 @@ async def webhook_telegram(request: Request):
             normalized = normalize_phone((payload_phone or "").strip(), default_region=default_region)
             if normalized:
                 update_account_profile(driver, user_id, phone_number=normalized)
+            set_registered(driver, user_id)
             from telegram import ReplyKeyboardRemove
 
             await bot.send_message(

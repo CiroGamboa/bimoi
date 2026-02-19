@@ -22,7 +22,7 @@ FOR (p:Person) REQUIRE p.telegram_id IS UNIQUE
 
 _LOOKUP_QUERY = """
 MATCH (p:Person { telegram_id: $telegram_id })
-RETURN p.id AS user_id
+RETURN p.id AS user_id, p.registered AS registered
 """
 
 _SET_REGISTERED_QUERY = """
@@ -42,13 +42,13 @@ RETURN p.id AS user_id
 """
 
 _SET_OWNER_NAME_QUERY = """
-MATCH (p:Person { id: $user_id, registered: true })
+MATCH (p:Person { id: $user_id })
 SET p.name = $name
 RETURN p.id AS user_id
 """
 
 _UPDATE_PROFILE_QUERY = """
-MATCH (p:Person { id: $user_id, registered: true })
+MATCH (p:Person { id: $user_id })
 WITH p
 SET p.name = CASE WHEN $name IS NOT NULL THEN $name ELSE p.name END,
     p.bio = CASE WHEN $bio IS NOT NULL THEN $bio ELSE p.bio END,
@@ -57,7 +57,7 @@ RETURN p.id AS user_id
 """
 
 _GET_PROFILE_QUERY = """
-MATCH (p:Person { id: $user_id, registered: true })
+MATCH (p:Person { id: $user_id })
 RETURN p.name AS name, p.bio AS bio, p.phone_number AS phone_number
 """
 
@@ -87,9 +87,9 @@ def get_or_create_user_id(
     """Resolve (channel, external_id) to a stable user_id (owner Person id).
 
     For Telegram, external_id is stored as Person.telegram_id. Returns (user_id, is_new_account).
-    If a Person with this telegram_id exists, sets registered = true and returns its id.
-    Otherwise creates a Person (id, telegram_id, created_at, registered: true).
-    Call ensure_identity_constraint at startup.
+    is_new_account is True when the user must see onboarding (new Person or existing contact
+    who has not completed signup). Do not set registered = true here; call set_registered
+    when they complete onboarding.
     """
     external_id = (external_id or "").strip()
     if not external_id:
@@ -109,8 +109,9 @@ def get_or_create_user_id(
         result = session.run(_LOOKUP_QUERY, telegram_id=telegram_id)
         record = result.single()
         if record and record["user_id"] is not None:
-            session.run(_SET_REGISTERED_QUERY, user_id=record["user_id"])
-            return (record["user_id"], False)
+            # Treat as new account if they were added as contact and never completed signup
+            is_new_account = record.get("registered") is not True
+            return (record["user_id"], is_new_account)
         result = session.run(
             _CREATE_OWNER_QUERY,
             user_id=user_id,
@@ -123,6 +124,12 @@ def get_or_create_user_id(
     if not record:
         raise RuntimeError("get_or_create_user_id: expected one result")
     return (record["user_id"], True)
+
+
+def set_registered(driver, user_id: str) -> None:
+    """Mark the Person as registered (completed signup). Call when onboarding is complete."""
+    with driver.session() as session:
+        session.run(_SET_REGISTERED_QUERY, user_id=user_id)
 
 
 def update_account_profile(

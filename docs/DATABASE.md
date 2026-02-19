@@ -14,19 +14,20 @@ Extensibility: for other channels (e.g. WhatsApp) add a property like `whatsapp_
 ## Contacts (Person + KNOWS with context)
 
 - **Person (owner)** is the owner of the contact graph: `(Person {id: user_id, registered: true})-[:KNOWS]->(Person)` (target may be `registered: false` or `registered: true`).
-- **Person (contact)** — `Person { id, name, phone_number?, external_id?, telegram_id?, created_at, registered: false }`. Created when the user adds a contact who is not on the app. We set `telegram_id` when the contact card has a Telegram user id so that when they sign up we reuse this node (one Person per human).
-- **Reusing existing users:** If the contact is already on the app (Person with matching `telegram_id` and `registered: true`), we create only `(owner)-[:KNOWS {context}]->(existing Person)`. Resolved via `get_person_id_by_channel_external_id(driver, channel, external_id)`. The same Person node can be the target of KNOWS from multiple owners.
+- **Person (contact)** — `Person { id, name?, phone_number?, external_id?, telegram_id?, created_at, registered: false }`. Created when the user adds a contact who is not on the app. **Person.name** is only set when that person signs up (onboarding); until then it is empty. The name the owner has saved for the contact lives on the **KNOWS** relationship as `contact_name`. We set `telegram_id` when the contact card has a Telegram user id so that when they sign up we reuse this node (one Person per human).
+- **Reusing existing users:** If the contact is already on the app (Person with matching `telegram_id`), we create only `(owner)-[:KNOWS {context, contact_name}]->(existing Person)`. Resolved via `get_person_id_by_channel_external_id(driver, channel, external_id)`. The same Person node can be the target of KNOWS from multiple owners; each KNOWS has its own `contact_name` (how that owner calls the contact).
 
-- **KNOWS relationship** — Connects owner Person to contact Person with context properties:
+- **KNOWS relationship** — Connects owner Person to contact Person with:
   - `context_id` (UUID)
   - `context_description` (text)
   - `context_created_at` (ISO timestamp)
   - `context_updated_at` (ISO timestamp)
+  - `contact_name` (string) — the name the owner has saved for this contact (display name in lists). Person.name is the signup name only and is not overwritten when someone adds them as a contact.
 
 **Graph structure:**
 ```cypher
 (owner:Person {id: user_id, registered: true})
-  -[:KNOWS {context_id, context_description, context_created_at, context_updated_at}]->(contact:Person)
+  -[:KNOWS {context_id, context_description, context_created_at, context_updated_at, contact_name}]->(contact:Person)
 ```
 Contact may have `registered: false` (new contact) or `registered: true` (existing app user).
 

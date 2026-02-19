@@ -49,6 +49,7 @@ class Neo4jContactRepository:
             return
         with self._driver.session() as session:
             if link_to_existing_id:
+                contact_name = (person.name or "").strip() or ""
                 session.run(
                     """
                     MERGE (owner:Person {id: $user_id, registered: true})
@@ -58,7 +59,8 @@ class Neo4jContactRepository:
                         context_id: $ctx_id,
                         context_description: $description,
                         context_created_at: $ctx_created_at,
-                        context_updated_at: $ctx_created_at
+                        context_updated_at: $ctx_created_at,
+                        contact_name: $contact_name
                     }]->(p)
                     """,
                     user_id=self._user_id,
@@ -66,10 +68,12 @@ class Neo4jContactRepository:
                     ctx_id=ctx.id,
                     description=ctx.description,
                     ctx_created_at=ctx_timestamp,
+                    contact_name=contact_name,
                 )
             else:
                 telegram_id = (person.external_id or "").strip() or None
                 stored_phone = normalize_phone((person.phone_number or "").strip(), default_region=None) or ""
+                contact_name = (person.name or "").strip() or ""
                 session.run(
                     """
                     MERGE (owner:Person {id: $user_id, registered: true})
@@ -86,12 +90,13 @@ class Neo4jContactRepository:
                         context_id: $ctx_id,
                         context_description: $description,
                         context_created_at: $ctx_created_at,
-                        context_updated_at: $ctx_created_at
+                        context_updated_at: $ctx_created_at,
+                        contact_name: $contact_name
                     }]->(p)
                     """,
                     user_id=self._user_id,
                     person_id=person.id,
-                    name=person.name,
+                    name="",
                     phone_number=stored_phone,
                     external_id=person.external_id or "",
                     telegram_id=telegram_id,
@@ -99,6 +104,7 @@ class Neo4jContactRepository:
                     ctx_id=ctx.id,
                     description=ctx.description,
                     ctx_created_at=ctx_timestamp,
+                    contact_name=contact_name,
                 )
 
     def get_by_id(self, person_id: str) -> Person | None:
@@ -193,7 +199,8 @@ def _record_to_person(record) -> Person:
     p = record["p"]
     k = record["k"]
     person_id = p["id"]
-    name = p.get("name") or ""
+    # Display name is the name the owner saved for this contact (relationship); fallback to node name (signup name or legacy).
+    name = (k.get("contact_name") or "").strip() or (p.get("name") or "").strip() or ""
     phone_number = p.get("phone_number") or None
     if phone_number == "":
         phone_number = None

@@ -1,6 +1,7 @@
 """Integration tests for identity layer (get_or_create_user_id, profile). Require Docker (testcontainers)."""
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -9,6 +10,7 @@ from bimoi.infrastructure import (
     get_account_profile,
     get_or_create_user_id,
     get_person_id_by_channel_external_id,
+    set_registered,
     update_account_profile,
 )
 from bimoi.infrastructure.identity import CHANNEL_TELEGRAM
@@ -136,6 +138,34 @@ def test_update_account_profile_raises_for_bio_over_max_length(clean_neo4j):
     user_id, _ = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "long_bio_user")
     with pytest.raises(ValueError, match=f"at most {BIO_MAX_LENGTH}"):
         update_account_profile(clean_neo4j, user_id, bio="x" * (BIO_MAX_LENGTH + 1))
+
+
+def test_existing_contact_signup_returns_is_new_until_registered(clean_neo4j):
+    """When a Person was added as contact (registered: false), signup sees is_new=True; after set_registered, is_new=False."""
+    ensure_channel_link_constraint(clean_neo4j)
+    # Simulate "Daniel" added by someone else: Person with telegram_id but registered: false
+    daniel_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    with clean_neo4j.session() as session:
+        session.run(
+            """
+            CREATE (p:Person {
+                id: $id,
+                telegram_id: $telegram_id,
+                created_at: $created_at,
+                registered: false
+            })
+            """,
+            id=daniel_id,
+            telegram_id="daniel_telegram_555",
+            created_at=created_at,
+        )
+    user_id, is_new = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "daniel_telegram_555")
+    assert user_id == daniel_id
+    assert is_new is True
+    set_registered(clean_neo4j, user_id)
+    _, is_new_after = get_or_create_user_id(clean_neo4j, CHANNEL_TELEGRAM, "daniel_telegram_555")
+    assert is_new_after is False
 
 
 def test_get_person_id_by_channel_external_id_returns_id_when_linked(clean_neo4j):

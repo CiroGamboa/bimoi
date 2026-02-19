@@ -68,8 +68,6 @@ class Person:
     relationship_context: RelationshipContext = field(default=None)
 
     def __post_init__(self):
-        if not self.name or not self.name.strip():
-            raise ValueError("Person name must be non-empty.")
-
+        # name may be empty for contact nodes until the person signs up (display name comes from relationship contact_name).
         if self.relationship_context is None:
             raise ValueError("Person must have an associated RelationshipContext.")
