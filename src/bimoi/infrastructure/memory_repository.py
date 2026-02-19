@@ -88,6 +88,10 @@ class InMemoryContactRepository:
                     return self._person_with_display_name(person)
         return None
 
+    def get_mutual_contact_ids(self) -> set[str]:
+        """Return person_ids of contacts who have also added the current user. In-memory has no reverse KNOWS."""
+        return set()
+
     def append_context(self, person_id: str, additional_text: str) -> bool:
         person = self._by_id.get(person_id)
         if not person:
@@ -106,6 +110,7 @@ class InMemoryContactRepository:
             external_id=person.external_id,
             created_at=person.created_at,
             relationship_context=new_ctx,
+            bio=getattr(person, "bio", None),
         )
         self._by_id[person_id] = new_person
         return True

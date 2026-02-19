@@ -37,3 +37,7 @@ class ContactRepository(Protocol):
     def append_context(self, person_id: str, additional_text: str) -> bool:
         """Append text to the contact's context. Returns True if updated, False if not found."""
         ...
+
+    def get_mutual_contact_ids(self) -> set[str]:
+        """Return person_ids of contacts who have also added the current user (KNOWS both ways)."""
+        ...

@@ -3,7 +3,7 @@
 
 import pytest
 
-from bimoi.application import ContactCardData
+from bimoi.application import ContactCardData, ContactService
 from bimoi.domain import Person, RelationshipContext
 from bimoi.infrastructure import (
     Neo4jContactRepository,
@@ -242,3 +242,70 @@ def test_find_duplicate_returns_registered_person(clean_neo4j):
     found = repo.find_duplicate(card)
     assert found is not None
     assert found.id == bob_id
+
+
+def test_search_by_bio_returns_contact_when_keyword_in_bio(clean_neo4j):
+    """Search matches keyword in contact's bio (registered users); result includes bio."""
+    ensure_channel_link_constraint(clean_neo4j)
+    owner_id, _ = get_or_create_user_id(
+        clean_neo4j, CHANNEL_TELEGRAM, "owner_bio_search", initial_name="Alice"
+    )
+    repo = Neo4jContactRepository(clean_neo4j, user_id=owner_id)
+    person = Person(
+        name="Daniel",
+        relationship_context=RelationshipContext(description="Met at conference"),
+    )
+    repo.add(person)
+    with clean_neo4j.session() as session:
+        session.run(
+            "MATCH (p:Person {id: $id}) SET p.bio = $bio",
+            id=person.id,
+            bio="Engineer and guitarist",
+        )
+    service = ContactService(repo)
+    results = service.search_contacts("guitarist")
+    assert len(results) == 1
+    assert results[0].person_id == person.id
+    assert results[0].bio == "Engineer and guitarist"
+    assert results[0].name == "Daniel"
+
+
+def test_get_mutual_contact_ids_returns_ids_when_reverse_knows(clean_neo4j):
+    """get_mutual_contact_ids returns person_ids of contacts who have also added the owner."""
+    ensure_channel_link_constraint(clean_neo4j)
+    alice_id, _ = get_or_create_user_id(
+        clean_neo4j, CHANNEL_TELEGRAM, "alice_mutual", initial_name="Alice"
+    )
+    bob_id, _ = get_or_create_user_id(
+        clean_neo4j, CHANNEL_TELEGRAM, "bob_mutual", initial_name="Bob"
+    )
+    repo_alice = Neo4jContactRepository(clean_neo4j, user_id=alice_id)
+    repo_alice.add(
+        Person(
+            name="Bob",
+            relationship_context=RelationshipContext(description="Friend"),
+        ),
+        link_to_existing_id=bob_id,
+    )
+    assert bob_id not in repo_alice.get_mutual_contact_ids()
+    with clean_neo4j.session() as session:
+        session.run(
+            """
+            MATCH (bob:Person {id: $bob_id}), (alice:Person {id: $alice_id})
+            CREATE (bob)-[:KNOWS {
+                context_id: $ctx_id,
+                context_description: $desc,
+                context_created_at: $ts,
+                context_updated_at: $ts,
+                contact_name: $contact_name
+            }]->(alice)
+            """,
+            bob_id=bob_id,
+            alice_id=alice_id,
+            ctx_id="ctx-mutual",
+            desc="Added Alice",
+            ts="2020-01-01T00:00:00",
+            contact_name="Alice",
+        )
+    mutual_ids = repo_alice.get_mutual_contact_ids()
+    assert mutual_ids == {bob_id}

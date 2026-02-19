@@ -194,6 +194,18 @@ class Neo4jContactRepository:
             )
             return result.single() is not None
 
+    def get_mutual_contact_ids(self) -> set[str]:
+        """Return person_ids of contacts who have also added the current user (KNOWS both ways)."""
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (p:Person)-[:KNOWS]->(owner:Person {id: $user_id, registered: true})
+                RETURN p.id AS person_id
+                """,
+                user_id=self._user_id,
+            )
+            return {record["person_id"] for record in result if record.get("person_id")}
+
 
 def _record_to_person(record) -> Person:
     p = record["p"]
@@ -204,6 +216,9 @@ def _record_to_person(record) -> Person:
     phone_number = p.get("phone_number") or None
     if phone_number == "":
         phone_number = None
+    bio = (p.get("bio") or "").strip() or None
+    if bio == "":
+        bio = None
     external_id = p.get("external_id") or p.get("telegram_id") or None
     if external_id == "":
         external_id = None
@@ -223,4 +238,5 @@ def _record_to_person(record) -> Person:
         external_id=external_id,
         created_at=person_created_at,
         relationship_context=ctx,
+        bio=bio,
     )

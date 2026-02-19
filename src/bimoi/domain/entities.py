@@ -66,6 +66,7 @@ class Person:
     external_id: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     relationship_context: RelationshipContext = field(default=None)
+    bio: str | None = None
 
     def __post_init__(self):
         # name may be empty for contact nodes until the person signs up (display name comes from relationship contact_name).

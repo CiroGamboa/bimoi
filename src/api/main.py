@@ -71,10 +71,25 @@ _flow_state: dict[tuple[str, int], dict] = {}
 
 
 def _format_contact_card(s: ContactSummary) -> str:
-    """Format one contact as card (name, phone) + description."""
+    """Format one contact as card (name, phone, bio, mutual badge) + description."""
     parts = [s.name]
     if s.phone_number:
         parts.append(f"Phone: {s.phone_number}")
+    if s.bio and s.bio.strip():
+        parts.append(f"Bio: {s.bio.strip()}")
+    if s.mutual:
+        parts.append("🤝 Added each other")
+    parts.append(f"— {s.context}")
+    return "\n".join(parts)
+
+
+def _format_contact_details_after_card(s: ContactSummary) -> str:
+    """Format only bio, mutual badge and context (use after sending the Telegram contact card)."""
+    parts = []
+    if s.bio and s.bio.strip():
+        parts.append(f"Bio: {s.bio.strip()}")
+    if s.mutual:
+        parts.append("🤝 Added each other")
     parts.append(f"— {s.context}")
     return "\n".join(parts)
 
@@ -158,6 +173,8 @@ class ContactListItem(BaseModel):
     created_at: str
     person_id: str = ""
     phone_number: str | None = None
+    bio: str | None = None
+    mutual: bool = False
 
 
 @app.post("/contacts")
@@ -207,6 +224,8 @@ def list_contacts(
             created_at=s.created_at.isoformat(),
             person_id=s.person_id,
             phone_number=s.phone_number,
+            bio=s.bio,
+            mutual=s.mutual,
         )
         for s in summaries
     ]
@@ -228,6 +247,8 @@ def search_contacts(
             created_at=s.created_at.isoformat(),
             person_id=s.person_id,
             phone_number=s.phone_number,
+            bio=s.bio,
+            mutual=s.mutual,
         )
         for s in summaries
     ]
@@ -380,7 +401,9 @@ async def _send_contact_results_impl(bot, chat_id: int, summaries: list) -> None
                     last_name=last_name,
                 )
                 await bot.send_message(
-                    chat_id=chat_id, text=f"— {s.context}", reply_markup=add_ctx_kb(s.person_id)
+                    chat_id=chat_id,
+                    text=_format_contact_details_after_card(s),
+                    reply_markup=add_ctx_kb(s.person_id),
                 )
             except Exception:
                 await bot.send_message(

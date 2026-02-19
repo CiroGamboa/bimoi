@@ -13,6 +13,8 @@ class ContactSummary:
     created_at: datetime
     person_id: str = ""
     phone_number: str | None = None
+    bio: str | None = None
+    mutual: bool = False
 
 
 @dataclass(frozen=True)

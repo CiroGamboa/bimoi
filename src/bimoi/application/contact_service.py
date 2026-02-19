@@ -113,7 +113,8 @@ class ContactService:
         return ContactCreated(person_id=effective_id, name=person.name)
 
     def list_contacts(self) -> list[ContactSummary]:
-        """Return all contacts (name, context, created_at)."""
+        """Return all contacts (name, context, created_at, bio, mutual)."""
+        mutual_ids = self._repo.get_mutual_contact_ids()
         out = []
         for person in self._repo.list_all():
             ctx = person.relationship_context
@@ -124,19 +125,28 @@ class ContactService:
                     created_at=person.created_at,
                     person_id=person.id,
                     phone_number=person.phone_number,
+                    bio=getattr(person, "bio", None),
+                    mutual=person.id in mutual_ids,
                 )
             )
         return out
 
     def search_contacts(self, keyword: str) -> list[ContactSummary]:
-        """Return contacts whose context contains the keyword (case-insensitive, partial)."""
+        """Return contacts whose context or bio contains the keyword (case-insensitive, partial)."""
         if not keyword or not keyword.strip():
             return []
         needle = keyword.strip().lower()
+        mutual_ids = self._repo.get_mutual_contact_ids()
         out = []
         for person in self._repo.list_all():
-            if needle in person.relationship_context.description.lower():
-                ctx = person.relationship_context
+            ctx = person.relationship_context
+            in_context = needle in ctx.description.lower()
+            in_bio = (
+                getattr(person, "bio", None)
+                and (person.bio or "").strip()
+                and needle in (person.bio or "").lower()
+            )
+            if in_context or in_bio:
                 out.append(
                     ContactSummary(
                         name=person.name,
@@ -144,6 +154,8 @@ class ContactService:
                         created_at=person.created_at,
                         person_id=person.id,
                         phone_number=person.phone_number,
+                        bio=getattr(person, "bio", None),
+                        mutual=person.id in mutual_ids,
                     )
                 )
         return out
@@ -153,6 +165,7 @@ class ContactService:
         person = self._repo.get_by_id(person_id)
         if not person:
             return None
+        mutual_ids = self._repo.get_mutual_contact_ids()
         ctx = person.relationship_context
         return ContactSummary(
             name=person.name,
@@ -160,6 +173,8 @@ class ContactService:
             created_at=person.created_at,
             person_id=person.id,
             phone_number=person.phone_number,
+            bio=getattr(person, "bio", None),
+            mutual=person.id in mutual_ids,
         )
 
     def add_context(
